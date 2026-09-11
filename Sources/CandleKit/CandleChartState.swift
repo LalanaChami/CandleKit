@@ -42,6 +42,8 @@ public final class CandleChartState {
     @ObservationIgnored private var oldestRequestCount: Int?
     @ObservationIgnored private var crosshairHandler: ((Candle?) -> Void)?
     @ObservationIgnored private var oldestCandleHandler: (() -> Void)?
+    // Cached so makeFrame never calls estimatedInterval during a pan frame (it only changes with data).
+    @ObservationIgnored private var cachedInterval: TimeInterval = 60
 
     // MARK: Rubber-band and spring-animation state (not observed)
 
@@ -293,6 +295,9 @@ public final class CandleChartState {
         viewport.apply(change, previousCount: summary?.count ?? 0, newCount: newCandles.count, rightPadding: rightPadding)
         summary = SeriesSummary(newCandles)
         candles = newCandles
+        if change != .unchanged {
+            cachedInterval = TimeScale.estimatedInterval(of: newCandles)
+        }
         // Skip the clamp while the user is in rubber-band overscroll or a spring-back is running,
         // so the intentional out-of-bounds position is rendered rather than immediately corrected.
         if !isRubberBanding {
@@ -301,7 +306,10 @@ public final class CandleChartState {
 
         let series = indicatorCache.series(for: indicators.map(\.kind), candles: newCandles)
         let visible = viewport.visibleRange(width: plotWidth, count: newCandles.count)
-        let priceRange = PriceScale.autoRange(for: newCandles, in: visible, including: series) ?? 0...1
+        // Expand the price window by a few candles on each side so single candles entering or leaving
+        // the visible range don't shift the price axis during a pan — that would jitter all candle Y positions.
+        let priceWindow = max(0, visible.lowerBound - 5)..<min(newCandles.count, visible.upperBound + 5)
+        let priceRange = PriceScale.autoRange(for: newCandles, in: priceWindow, including: series) ?? 0...1
         let priceScale = LinearScale(
             domain: priceRange,
             rangeStart: Double(layout.priceBand.upperBound),
@@ -318,12 +326,12 @@ public final class CandleChartState {
             volumeMax = max(volumeMax, newCandles[index].volume)
         }
 
-        let interval = TimeScale.estimatedInterval(of: newCandles)
         let timeTicks = TimeScale.ticks(
             for: newCandles,
             in: visible,
             spacing: viewport.spacing,
-            minimumLabelSpacing: metrics.timeLabelSpacing
+            minimumLabelSpacing: metrics.timeLabelSpacing,
+            interval: cachedInterval
         )
 
         return ChartFrame(
@@ -335,8 +343,8 @@ public final class CandleChartState {
             priceTicks: priceTicks,
             priceFractionDigits: fractionDigits ?? PriceScale.suggestedFractionDigits(forPrice: newCandles.last?.close ?? 0),
             timeTicks: timeTicks,
-            baseTimeUnit: TimeScale.baseUnit(forInterval: interval),
-            interval: interval,
+            baseTimeUnit: TimeScale.baseUnit(forInterval: cachedInterval),
+            interval: cachedInterval,
             volumeMax: volumeMax,
             indicators: indicators,
             indicatorSeries: series

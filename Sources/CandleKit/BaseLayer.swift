@@ -210,10 +210,16 @@ struct BaseLayerRenderer {
             )
         }
 
+        let timeFadeZone = 48.0
         for tick in frame.timeTicks {
             let x = frame.centerX(ofCandle: tick.index)
-            guard x > layout.timeAxis.minX + 16, x < layout.timeAxis.maxX - 16 else { continue }
-            context.draw(
+            let minX = layout.timeAxis.minX
+            let maxX = layout.timeAxis.maxX
+            guard x > minX + 4, x < maxX - 4 else { continue }
+            let opacity = min((x - minX) / timeFadeZone, (maxX - x) / timeFadeZone, 1.0)
+            var labelContext = context
+            labelContext.opacity *= opacity
+            labelContext.draw(
                 ChartText.label(
                     ChartFormat.axisTime(tick.date, unit: tick.unit),
                     color: style.axisLabelColor,

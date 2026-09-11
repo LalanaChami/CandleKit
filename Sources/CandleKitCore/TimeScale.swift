@@ -65,18 +65,22 @@ public enum TimeScale {
     ///
     /// Ticks sit on absolute multiples of the stride, so they stay put while panning. A label is promoted
     /// to a coarser unit when it crosses a boundary: a new day on an intraday chart, a new month on a daily chart.
+    ///
+    /// Pass a pre-computed `interval` to avoid redundant `estimatedInterval` calls when the caller already
+    /// has one (e.g. from `makeFrame`).
     public static func ticks(
         for candles: [Candle],
         in visible: Range<Int>,
         spacing: Double,
         minimumLabelSpacing: Double = 90,
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        interval: TimeInterval? = nil
     ) -> [TimeTick] {
         let visible = visible.clamped(to: 0..<candles.count)
         guard !visible.isEmpty else { return [] }
 
         let labelEvery = labelStride(spacing: spacing, minimumLabelSpacing: minimumLabelSpacing)
-        let base = baseUnit(forInterval: estimatedInterval(of: candles))
+        let base = baseUnit(forInterval: interval ?? estimatedInterval(of: candles))
         let firstTick = (visible.lowerBound + labelEvery - 1) / labelEvery * labelEvery
 
         var ticks: [TimeTick] = []
