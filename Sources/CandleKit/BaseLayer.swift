@@ -5,11 +5,12 @@ import SwiftUI
 struct ChartBaseLayer: View {
     let frame: ChartFrame
     let style: CandleChartStyle
+    let appearPhase: Double
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         Canvas { context, _ in
-            let renderer = BaseLayerRenderer(frame: frame, style: style, pixels: PixelGrid(scale: displayScale))
+            let renderer = BaseLayerRenderer(frame: frame, style: style, pixels: PixelGrid(scale: displayScale), appearPhase: appearPhase)
             renderer.draw(in: &context)
         }
         .allowsHitTesting(false)
@@ -20,15 +21,29 @@ struct BaseLayerRenderer {
     let frame: ChartFrame
     let style: CandleChartStyle
     let pixels: PixelGrid
+    /// 0 = all candles hidden (start of appear animation), 1 = fully visible (steady state).
+    let appearPhase: Double
 
     func draw(in context: inout GraphicsContext) {
         var plotContext = context
         plotContext.clip(to: Path(frame.layout.plot))
         drawGrid(in: &plotContext)
-        drawVolume(in: &plotContext)
-        drawCandles(in: &plotContext)
-        drawIndicators(in: &plotContext)
-        drawLastPriceLine(in: &plotContext)
+        if appearPhase < 1.0 {
+            // During the appear animation candles draw per-candle (no path batching) so each can
+            // carry its own staggered opacity. Volume, indicators and the last-price line fade in
+            // together at the overall phase so they trail the candles visually.
+            drawAnimatedCandles(in: &plotContext)
+            var fadedContext = plotContext
+            fadedContext.opacity *= appearPhase
+            drawVolume(in: &fadedContext)
+            drawIndicators(in: &fadedContext)
+            drawLastPriceLine(in: &fadedContext)
+        } else {
+            drawVolume(in: &plotContext)
+            drawCandles(in: &plotContext)
+            drawIndicators(in: &plotContext)
+            drawLastPriceLine(in: &plotContext)
+        }
         drawAxes(in: &context)
     }
 
@@ -145,6 +160,66 @@ struct BaseLayerRenderer {
         context.fill(fallingBodies, with: .color(style.downColor))
         if !hollowBodies.isEmpty {
             context.stroke(hollowBodies, with: .color(style.upColor), lineWidth: wickWidth / scale)
+        }
+    }
+
+    /// Appear-animation path: draws each visible candle with a staggered opacity so candles
+    /// materialize left-to-right (oldest first). Each candle's fade window occupies 30 % of the
+    /// total phase, with the stagger eating the first 70 %, so the leftmost starts at phase 0 and
+    /// the rightmost finishes at phase 1.0. Per-candle draw calls are acceptable here because the
+    /// animation runs for only ~0.4 s; `drawCandles` resumes its batched path approach afterwards.
+    private func drawAnimatedCandles(in context: inout GraphicsContext) {
+        let visible = frame.visible
+        let count = visible.count
+        guard count > 0 else { return }
+
+        let (bodyWidth, wickWidth) = widthsInPixels
+        let scale = pixels.scale
+        let drawsBodies = bodyWidth > wickWidth
+
+        for (position, index) in visible.enumerated() {
+            let t = count > 1 ? Double(position) / Double(count - 1) : 1.0
+            let fadeStart = t * 0.7
+            let fadeEnd   = fadeStart + 0.3
+            let opacity   = max(0, min(1, (appearPhase - fadeStart) / (fadeEnd - fadeStart)))
+            guard opacity > 0 else { continue }
+
+            var localContext = context
+            localContext.opacity *= opacity
+
+            let candle   = frame.candles[index]
+            let bodyLeft = bodyLeftInPixels(index, bodyWidth: bodyWidth)
+            let wickX    = (bodyLeft + (bodyWidth - wickWidth) / 2) / scale
+            let wickPts  = wickWidth / scale
+
+            let highY    = pixels.snap(frame.y(forPrice: candle.high))
+            let lowY     = pixels.snap(frame.y(forPrice: candle.low))
+            let openY    = pixels.snap(frame.y(forPrice: candle.open))
+            let closeY   = pixels.snap(frame.y(forPrice: candle.close))
+            let bodyTop  = min(openY, closeY)
+            let bodyH    = max(abs(openY - closeY), pixels.hairline)
+            let body     = CGRect(x: bodyLeft / scale, y: bodyTop, width: bodyWidth / scale, height: bodyH)
+            let color    = candle.isBullish ? style.upColor : style.downColor
+
+            if candle.isBullish && style.hollowUpCandles && drawsBodies {
+                var wickPath = Path()
+                wickPath.addRect(CGRect(x: wickX, y: highY,      width: wickPts, height: max(0, bodyTop - highY)))
+                wickPath.addRect(CGRect(x: wickX, y: body.maxY, width: wickPts, height: max(0, lowY - body.maxY)))
+                localContext.fill(wickPath, with: .color(color))
+                localContext.stroke(
+                    Path(body.insetBy(dx: wickPts / 2, dy: min(wickPts / 2, bodyH / 2))),
+                    with: .color(color),
+                    lineWidth: wickWidth / scale
+                )
+            } else {
+                localContext.fill(
+                    Path(CGRect(x: wickX, y: highY, width: wickPts, height: max(lowY - highY, pixels.hairline))),
+                    with: .color(color)
+                )
+                if drawsBodies {
+                    localContext.fill(Path(body), with: .color(color))
+                }
+            }
         }
     }
 

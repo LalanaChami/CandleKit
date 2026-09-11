@@ -57,6 +57,13 @@ public final class CandleChartState {
     /// is rendered rather than immediately corrected.
     @ObservationIgnored var isRubberBanding = false
 
+    // MARK: Appear animation (not observed)
+
+    /// Progress of the candle appear animation when new data first loads. 0 = all candles hidden,
+    /// 1 = all visible. Driven by `appearDisplayLink`; read in the Canvas to stagger per-candle opacity.
+    @ObservationIgnored var appearPhase: Double = 1.0
+    @ObservationIgnored private var appearDisplayLink: CADisplayLink?
+
     @ObservationIgnored private var springDisplayLink: CADisplayLink?
     @ObservationIgnored private var springTargetViewport: Viewport?
     @ObservationIgnored private var springRightEdgeVelocity: Double = 0
@@ -224,9 +231,10 @@ public final class CandleChartState {
         startSpringAnimation(to: target)
     }
 
-    /// Stops any in-progress spring animation without snapping to the target.
+    /// Stops any in-progress spring or appear animation without snapping to targets.
     func cancelAnimation() {
         stopSpringAnimation()
+        stopAppearAnimation()
     }
 
     private func startSpringAnimation(to target: Viewport) {
@@ -279,6 +287,30 @@ public final class CandleChartState {
         springTargetViewport = nil
     }
 
+    // MARK: Appear animation
+
+    private func startAppearAnimation() {
+        stopAppearAnimation()
+        let link = CADisplayLink(target: self, selector: #selector(stepAppearAnimation(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+        link.add(to: .main, forMode: .common)
+        appearDisplayLink = link
+    }
+
+    @objc private func stepAppearAnimation(_ link: CADisplayLink) {
+        let elapsed = link.targetTimestamp - link.timestamp
+        appearPhase = min(1.0, appearPhase + elapsed / 0.4)
+        revision &+= 1
+        if appearPhase >= 1.0 {
+            stopAppearAnimation()
+        }
+    }
+
+    private func stopAppearAnimation() {
+        appearDisplayLink?.invalidate()
+        appearDisplayLink = nil
+    }
+
     // MARK: Rendering
 
     func setHandlers(crosshair: ((Candle?) -> Void)?, oldestCandle: (() -> Void)?) {
@@ -301,7 +333,18 @@ public final class CandleChartState {
         let change = SeriesChange.between(summary, newCandles)
         viewport.apply(change, previousCount: summary?.count ?? 0, newCount: newCandles.count, rightPadding: rightPadding)
         summary = SeriesSummary(newCandles)
+        let wasEmpty = candles.isEmpty
         candles = newCandles
+        // Start the one-shot candle appear animation whenever data first arrives after an empty state
+        // (initial load, timeframe switch, product change). Deferred via Task so it runs after this
+        // view update rather than mutating state mid-render.
+        if wasEmpty && !newCandles.isEmpty {
+            appearPhase = 0.0
+            Task { [weak self] in
+                guard let self else { return }
+                self.startAppearAnimation()
+            }
+        }
         if change != .unchanged {
             cachedInterval = TimeScale.estimatedInterval(of: newCandles)
         }

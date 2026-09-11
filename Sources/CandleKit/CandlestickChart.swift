@@ -60,7 +60,7 @@ public struct CandlestickChart: View {
                 )
 
                 ZStack(alignment: .topLeading) {
-                    ChartBaseLayer(frame: frame, style: style)
+                    ChartBaseLayer(frame: frame, style: style, appearPhase: state.appearPhase)
                     CrosshairLayer(state: state, frame: frame, style: style)
                     ChartGestureView(state: state)
                         .frame(width: frame.layout.plot.width, height: frame.layout.plot.height)
