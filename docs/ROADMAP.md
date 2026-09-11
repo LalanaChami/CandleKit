@@ -54,6 +54,11 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done · `[-]` droppe
   - Spring-animated zoom reset (double-tap uses `animatedResetZoom()`; programmatic `resetZoom()` still snaps).
   - Long-press minimum duration reduced 0.25 s → 0.15 s.
   *Verify: CLI build. Device: rubber-band feel at both edges, correct haptic at each event, spring-back with no bounce, no double-firing on crosshair appear.*
+- [x] **0.9 Loading animation** (parallel-safe).
+  - `SkeletonChartView` added to `Demo/CandleKitDemo/Market/`. Draws 30 deterministic placeholder candles using overlapping sine waves so the shape is consistent across appearances, with a gradient shimmer band that sweeps left → right via `TimelineView(.animation)`.
+  - `MarketView.chart` restructured from `switch` to `if/else` so SwiftUI can track view identity and apply `.transition(.opacity)` on each branch. A `.animation(.easeInOut(duration: 0.35), value: feed.candles.isEmpty)` modifier crossfades skeleton ↔ real chart when the user changes timeframe or product.
+  - `MarketView.realChart` extracted as a separate `@ViewBuilder` property; `failureMessage` helper extracts the error string from `feed.status` to keep the `@ViewBuilder` readable.
+  *Verify: CLI build. Device: switching timeframe shows skeleton while loading, then crossfades to the real chart.*
 - [x] **0.8 Pan scroll smoothness** (parallel-safe).
   - `PriceScale.autoRange` now uses a ±5-candle padded window around the viewport so the price axis stays stable when a single candle enters or leaves the visible range during panning — eliminating vertical jitter on all candle Y-positions.
   - `estimatedInterval` cached in `CandleChartState` and updated only when series data changes (not every frame). Zero calls during a pan; one call on data update. `TimeScale.ticks()` accepts an optional `interval:` parameter so callers avoid a second internal call.

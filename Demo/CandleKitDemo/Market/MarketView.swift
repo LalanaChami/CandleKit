@@ -28,6 +28,7 @@ struct MarketView: View {
 
                 chart
                     .frame(maxHeight: .infinity)
+                    .animation(.easeInOut(duration: 0.35), value: feed.candles.isEmpty)
 
                 footer
             }
@@ -48,10 +49,15 @@ struct MarketView: View {
         }
     }
 
+    // When candles.isEmpty flips, the .animation modifier above crossfades between
+    // the skeleton and the real chart. Using if/else (not switch) so SwiftUI can track
+    // view identity and apply .transition(.opacity) on each branch correctly.
     @ViewBuilder
     private var chart: some View {
-        switch feed.status {
-        case let .failed(message) where feed.candles.isEmpty:
+        if !feed.candles.isEmpty {
+            realChart
+                .transition(.opacity)
+        } else if let message = failureMessage {
             ContentUnavailableView {
                 Label("Couldn't load \(product.id)", systemImage: "wifi.exclamationmark")
             } description: {
@@ -61,28 +67,38 @@ struct MarketView: View {
                     .buttonStyle(.borderedProminent)
                 Button("Use simulated data") { source = .simulated }
             }
-        case .loading where feed.candles.isEmpty:
-            ProgressView("Loading \(product.id)")
-        default:
-            CandlestickChart(feed.candles, state: chartState)
-                .indicators(indicators)
-                .volumeVisible(showsVolume)
-                .onReachOldestCandle { feed.loadOlder() }
-                .overlay(alignment: .leading) {
-                    if feed.isLoadingHistory {
-                        ProgressView()
-                            .padding(10)
-                            .background(.regularMaterial, in: Circle())
-                            .padding(.leading, 8)
-                    }
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    // Clears the price and time axes.
-                    JumpToLatestButton(state: chartState)
-                        .padding(.trailing, 72)
-                        .padding(.bottom, 32)
-                }
+            .transition(.opacity)
+        } else {
+            SkeletonChartView()
+                .transition(.opacity)
         }
+    }
+
+    @ViewBuilder
+    private var realChart: some View {
+        CandlestickChart(feed.candles, state: chartState)
+            .indicators(indicators)
+            .volumeVisible(showsVolume)
+            .onReachOldestCandle { feed.loadOlder() }
+            .overlay(alignment: .leading) {
+                if feed.isLoadingHistory {
+                    ProgressView()
+                        .padding(10)
+                        .background(.regularMaterial, in: Circle())
+                        .padding(.leading, 8)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                // Clears the price and time axes.
+                JumpToLatestButton(state: chartState)
+                    .padding(.trailing, 72)
+                    .padding(.bottom, 32)
+            }
+    }
+
+    private var failureMessage: String? {
+        guard feed.candles.isEmpty, case let .failed(message) = feed.status else { return nil }
+        return message
     }
 
     private var footer: some View {
