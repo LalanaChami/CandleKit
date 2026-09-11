@@ -104,8 +104,9 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
         case .began:
-            stopAllAnimations()
+            stopAllAnimations()          // sets isScrolling = false via stopMomentum/stopSpring
             state.cancelAnimation()
+            state.isScrolling = true     // re-arm: panning has begun
             impactLight.prepare()
             isOverscrolling = false
             applyTranslation(of: recognizer)
@@ -113,13 +114,19 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
             applyTranslation(of: recognizer)
         case .ended:
             if isOverscrolling {
-                startSpringBack()
+                startSpringBack()        // keeps isScrolling = true until spring settles
             } else {
-                startMomentum(velocity: Double(recognizer.velocity(in: recognizer.view).x))
+                let vel = Double(recognizer.velocity(in: recognizer.view).x)
+                if abs(vel) > Self.minimumMomentumVelocity {
+                    startMomentum(velocity: vel)  // keeps isScrolling = true until momentum stops
+                } else {
+                    state.isScrolling = false      // short flick, no momentum
+                }
             }
             isOverscrolling = false
         default:
             isOverscrolling = false
+            state.isScrolling = false
             state.snapToClamped()
         }
     }
@@ -199,7 +206,6 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     // MARK: Momentum
 
     private func startMomentum(velocity: Double) {
-        guard abs(velocity) > Self.minimumMomentumVelocity else { return }
         momentumVelocity = velocity
         firedEdgeHaptic = false
         lastMomentumTimestamp = CACurrentMediaTime()
@@ -211,7 +217,9 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     }
 
     @objc private func stepMomentum(_ link: CADisplayLink) {
-        let now = link.timestamp
+        // targetTimestamp = when this frame appears on screen; computing physics to that moment
+        // removes the one-frame display lag that link.timestamp-based calculations carry.
+        let now = link.targetTimestamp
         let elapsed = min(max(now - lastMomentumTimestamp, 0), 1.0 / 30)
         lastMomentumTimestamp = now
         momentumVelocity *= pow(Self.decelerationPerMillisecond, elapsed * 1_000)
@@ -229,6 +237,7 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
         momentumDisplayLink?.invalidate()
         momentumDisplayLink = nil
         momentumVelocity = 0
+        state.isScrolling = false
     }
 
     // MARK: Rubber-band spring-back
@@ -246,7 +255,7 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     }
 
     @objc private func stepSpringBack(_ link: CADisplayLink) {
-        let now = link.timestamp
+        let now = link.targetTimestamp
         let elapsed = min(max(now - lastSpringTimestamp, 0), 1.0 / 30)
         lastSpringTimestamp = now
 
@@ -266,6 +275,7 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
         springDisplayLink?.invalidate()
         springDisplayLink = nil
         springEdgeVelocity = 0
+        state.isScrolling = false
     }
 
     // MARK: Combined stop

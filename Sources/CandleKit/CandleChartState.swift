@@ -44,6 +44,11 @@ public final class CandleChartState {
     @ObservationIgnored private var oldestCandleHandler: (() -> Void)?
     // Cached so makeFrame never calls estimatedInterval during a pan frame (it only changes with data).
     @ObservationIgnored private var cachedInterval: TimeInterval = 60
+    // Frozen while the user is scrolling so horizontal panning doesn't shift all candle Y-positions.
+    @ObservationIgnored private var cachedPriceRange: ClosedRange<Double>? = nil
+    /// True while the user is panning or momentum/spring-back is running. `makeFrame` skips
+    /// recomputing the price scale in this state to keep candle heights visually stable.
+    @ObservationIgnored var isScrolling = false
 
     // MARK: Rubber-band and spring-animation state (not observed)
 
@@ -238,7 +243,9 @@ public final class CandleChartState {
 
     @objc private func stepSpringAnimation(_ link: CADisplayLink) {
         guard let target = springTargetViewport else { stopSpringAnimation(); return }
-        let now = link.timestamp
+        // targetTimestamp is when this frame will appear on screen — computing physics to that moment
+        // removes the systematic one-frame lag that timestamp-based calculations have.
+        let now = link.targetTimestamp
         let elapsed = min(max(now - springLastTimestamp, 0), 1.0 / 30)
         springLastTimestamp = now
 
@@ -306,10 +313,15 @@ public final class CandleChartState {
 
         let series = indicatorCache.series(for: indicators.map(\.kind), candles: newCandles)
         let visible = viewport.visibleRange(width: plotWidth, count: newCandles.count)
-        // Expand the price window by a few candles on each side so single candles entering or leaving
-        // the visible range don't shift the price axis during a pan — that would jitter all candle Y positions.
-        let priceWindow = max(0, visible.lowerBound - 5)..<min(newCandles.count, visible.upperBound + 5)
-        let priceRange = PriceScale.autoRange(for: newCandles, in: priceWindow, including: series) ?? 0...1
+        // While scrolling, reuse the cached price range so horizontal panning doesn't shift candle heights.
+        // Update on data change, zoom (change == .unchanged but !isScrolling covers non-pan interactions),
+        // or when no cache exists yet. A ±15-candle window means occasional boundary candles don't jitter
+        // the scale even when the cache refreshes.
+        if !isScrolling || cachedPriceRange == nil || change != .unchanged {
+            let priceWindow = max(0, visible.lowerBound - 15)..<min(newCandles.count, visible.upperBound + 15)
+            cachedPriceRange = PriceScale.autoRange(for: newCandles, in: priceWindow, including: series) ?? 0...1
+        }
+        let priceRange = cachedPriceRange!
         let priceScale = LinearScale(
             domain: priceRange,
             rangeStart: Double(layout.priceBand.upperBound),

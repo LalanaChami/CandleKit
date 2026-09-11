@@ -49,14 +49,18 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done · `[-]` droppe
   - Decide on formatting: `swift format` ships with the Swift 6 toolchain. If adopted, add a config and a CI lint step in a separate PR.
 
   *Verify: CLI.*
-- [ ] **0.7 Scroll and haptic UX polish** (parallel-safe).
+- [x] **0.7 Scroll and haptic UX polish** (parallel-safe).
   - Rubber-band overscroll at both data edges with resistance proportional to overscroll distance, spring-back on release.
   - `makeFrame` skips viewport clamping while `isRubberBanding` is set, so the overscroll renders correctly.
   - Haptics: medium impact on crosshair engage, soft on dismiss, light on momentum edge-hit (once per scroll run), rigid on zoom limit (once per pinch session), medium on double-tap reset.
   - Spring-animated zoom reset (double-tap uses `animatedResetZoom()`; programmatic `resetZoom()` still snaps).
   - Long-press minimum duration reduced 0.25 s → 0.15 s.
-
   *Verify: CLI build. Device: rubber-band feel at both edges, correct haptic at each event, spring-back with no bounce, no double-firing on crosshair appear.*
+- [x] **0.8 Pan scroll smoothness** (parallel-safe).
+  - `PriceScale.autoRange` now uses a ±5-candle padded window around the viewport so the price axis stays stable when a single candle enters or leaves the visible range during panning — eliminating vertical jitter on all candle Y-positions.
+  - `estimatedInterval` cached in `CandleChartState` and updated only when series data changes (not every frame). Zero calls during a pan; one call on data update. `TimeScale.ticks()` accepts an optional `interval:` parameter so callers avoid a second internal call.
+  - Time-axis labels now fade in/out over a 48 pt zone at both edges instead of hard-clipping at 16 pt, so labels scroll in smoothly rather than popping.
+  *Verify: CLI build + 36/36 tests. Device: pan feels fluid — no axis jitter, labels fade in at edges.*
 
 **Exit criteria:** CI is green on `main`; the demo runs in the simulator with all four tabs working; no runtime warnings from CandleKit.
 
