@@ -80,14 +80,6 @@ struct MarketView: View {
             .indicators(indicators)
             .volumeVisible(showsVolume)
             .onReachOldestCandle { feed.loadOlder() }
-            .overlay(alignment: .leading) {
-                if feed.isLoadingHistory {
-                    ProgressView()
-                        .padding(10)
-                        .background(.regularMaterial, in: Circle())
-                        .padding(.leading, 8)
-                }
-            }
             .overlay(alignment: .bottomTrailing) {
                 // Clears the price and time axes.
                 JumpToLatestButton(state: chartState)
