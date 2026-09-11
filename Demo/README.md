@@ -1,14 +1,14 @@
 # CandleKit Demo
 
-An iOS app that shows what [CandleKit](https://github.com/LalanaChami/CandleKit) can do, using real market data and ordinary app code.
+An iOS app that shows what CandleKit can do, using real market data and ordinary app code. The demo lives inside the CandleKit repository and always builds against the local package source.
 
 ## What's inside
 
-**Market** streams live Bitcoin, Ether or Solana prices from Coinbase and builds candles from individual trades as they arrive. Scroll back and older candles load in automatically. Switch timeframes from 1 minute to 1 day, toggle moving averages and volume, or change to simulated data to work offline.
+**Market** streams live Bitcoin, Ether or Solana prices from Coinbase and builds candles from individual trades as they arrive. Scroll back and older candles load in automatically. Switch timeframes from 1 minute to 1 day, toggle moving averages and volume, or switch to simulated data to work offline.
 
 **Styles** shows each built-in style next to the code that produces it: standard, red-up, color-blind safe, hollow candles, custom brand colors, and a compact layout for cards.
 
-**In a page** puts a chart inside a scrolling detail screen, to show that horizontal drags move the chart while vertical drags still scroll the page.
+**In a page** puts a chart inside a scrolling detail screen, showing that horizontal drags move the chart while vertical drags still scroll the page.
 
 **Performance** loads 1,000, 10,000 or 100,000 candles with two indicators, and shows a refresh-rate meter while you fling and pinch.
 
@@ -16,29 +16,17 @@ An iOS app that shows what [CandleKit](https://github.com/LalanaChami/CandleKit)
 
 You need Xcode 16 or later and an iOS 17 simulator or device.
 
-If the repository includes `CandleKitDemo.xcodeproj`, open it and run. Otherwise, generate the project first with [XcodeGen](https://github.com/yonaskolb/XcodeGen):
+From the `Demo/` directory:
 
 ```sh
-brew install xcodegen
+brew install xcodegen   # if not already installed
 xcodegen generate
 open CandleKitDemo.xcodeproj
 ```
 
-To run on a device, choose your team under **Signing & Capabilities** and change the bundle identifier if Xcode asks.
+`CandleKitDemo.xcodeproj` is gitignored. Always edit `project.yml` and regenerate instead of editing the project directly.
 
-The demo tracks CandleKit's `main` branch. To pick up the newest changes, choose **File › Packages › Update to Latest Package Versions** in Xcode.
-
-## Working on CandleKit and the demo together
-
-Clone both repositories side by side:
-
-```
-Developer/
-├── CandleKit/
-└── CandleKitDemo/
-```
-
-Then either drag the `CandleKit` folder into the demo's project navigator in Xcode, which overrides the remote package with your local copy, or change the package in `project.yml` to `path: ../CandleKit` and run `xcodegen generate` again. Edits to CandleKit then show up in the demo on the next build.
+To run on a device, set your team under **Signing & Capabilities**.
 
 ## Market data
 
@@ -47,17 +35,14 @@ Live prices come from the public [Coinbase Exchange API](https://docs.cdp.coinba
 ## Project layout
 
 ```
-CandleKitDemo/
-├── App/            App entry point and tabs
-├── Data/           Coinbase and simulated data sources
-├── Market/         Live chart screen and the feed that builds candles from trades
-├── Styles/         Style gallery
-├── Detail/         Chart inside a scrolling page
-└── Performance/    Large datasets and the refresh-rate meter
+Demo/
+├── project.yml         XcodeGen spec — source of truth for the Xcode project
+├── Support/            Info.plist and other non-Swift resources
+└── CandleKitDemo/
+    ├── App/            App entry point and tab bar
+    ├── Data/           Coinbase and simulated data sources, shared models
+    ├── Market/         Live chart screen and the feed that builds candles from trades
+    ├── Styles/         Style gallery
+    ├── Detail/         Chart inside a scrolling page
+    └── Performance/    Large datasets and the refresh-rate meter
 ```
-
-`project.yml` is the source of truth for the Xcode project. If you change settings, edit it and regenerate rather than editing the project in Xcode.
-
-## License
-
-MIT. See [LICENSE](LICENSE).

@@ -29,19 +29,17 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done · `[-]` droppe
   - `CandleChartState.swift`: `@Observable` combined with `@MainActor`, `@ObservationIgnored` and `private(set)`.
 
   Fix root causes; don't add escape hatches. List each non-obvious fix in the PR description. *Verify: CLI.* — No fixes needed; `xcodebuild build -scheme CandleKit -destination 'generic/platform=iOS Simulator'` passed with zero errors and zero warnings on the first run.
-- [ ] **0.3 Demo builds against the local package.**
-  - Change `Demo/project.yml` from the GitHub URL to `path: ..`.
-  - Rewrite `Demo/README.md` for the monorepo layout: remove the "separate repository" and "Update to Latest Package Versions" instructions.
-  - Decide whether `Demo/LICENSE` stays; the root LICENSE already covers it.
-  - Run `xcodegen generate` and build the demo, fixing Swift 6 issues. A known suspect is capturing `URLSessionWebSocketTask` in `@Sendable` closures in `CoinbaseMarketData`.
-
+- [x] **0.3 Demo builds against the local package.**
+  - `Demo/project.yml` switched from `url: + branch:` to `path: ..`.
+  - `Demo/README.md` rewritten for the monorepo layout: "Update to Latest Package Versions" and "clone both repos side by side" instructions removed.
+  - `Demo/LICENSE` removed; the root LICENSE covers the whole repo.
+  - `xcodegen generate` + `xcodebuild` succeeded with zero errors and zero warnings. No Swift 6 fixes needed — `CoinbaseMarketData` was clean as written.
   *Verify: CLI.*
-- [ ] **0.4 CI.** Add `.github/workflows/ci.yml` with three jobs:
-  1. Linux: `swift test` in a `swift:6.x` container.
-  2. macOS: `swift test`, plus the iOS `xcodebuild` build of `CandleKit`.
-  3. Demo: `brew install xcodegen`, `xcodegen generate` in `Demo/`, then `xcodebuild` with `CODE_SIGNING_ALLOWED=NO`.
-
-  Run on pushes to `main` and on pull requests. Check `git status` to confirm `.github/` is actually tracked. *Verify: CLI (a green run on GitHub).*
+- [~] **0.4 CI.** `.github/workflows/ci.yml` written with three jobs:
+  1. `core-linux`: `swift test` in the `swift:6.0` container on `ubuntu-latest`.
+  2. `core-macos`: `swift test` + `xcodebuild CandleKit` (iOS Simulator) on `macos-15`.
+  3. `demo`: `brew install xcodegen`, `xcodegen generate`, `xcodebuild CandleKitDemo` on `macos-15`.
+  Triggers on push to `main` and on pull requests. `.github/` is untracked (`??`) — not gitignored. *Verify: a green run on GitHub after the first push.*
 - [ ] **0.5 Simulator smoke test.** Claude writes `docs/QA.md` (the checklist in 1.1). The maintainer launches the demo and confirms all four tabs render and the chart responds to touch. Watch Xcode's console for purple runtime warnings: "Modifying state during view update", "Publishing changes from within view updates", main-thread checker hits. Paste any into an issue. *Verify: Device.*
 - [ ] **0.6 Repository hygiene** (parallel-safe).
   - Add `CHANGELOG.md` in Keep a Changelog format.

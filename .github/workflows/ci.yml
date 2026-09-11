@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+
+  # 1. Pure Foundation engine — builds and tests on Linux to catch platform-specific issues.
+  core-linux:
+    name: Core — Linux
+    runs-on: ubuntu-latest
+    container: swift:6.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift test
+        run: swift test
+
+  # 2. Core tests on macOS, plus the SwiftUI/UIKit layer that only compiles for iOS.
+  core-macos:
+    name: Core + iOS layer — macOS
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift test
+        run: swift test
+      - name: xcodebuild CandleKit (iOS Simulator)
+        run: |
+          xcodebuild build -quiet \
+            -scheme CandleKit \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
+
+  # 3. Demo app — generates the Xcode project from project.yml, then builds against the local package.
+  demo:
+    name: Demo — iOS Simulator
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: Demo
+        run: xcodegen generate
+      - name: xcodebuild CandleKitDemo (iOS Simulator)
+        working-directory: Demo
+        run: |
+          xcodebuild build -quiet \
+            -project CandleKitDemo.xcodeproj \
+            -scheme CandleKitDemo \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO

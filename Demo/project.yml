@@ -9,11 +9,7 @@ options:
 
 packages:
   CandleKit:
-    url: https://github.com/LalanaChami/CandleKit
-    # Switch to `from: "0.1.0"` once CandleKit has a release tag.
-    branch: main
-    # To develop CandleKit and the demo side by side, replace the two lines above with:
-    # path: ../CandleKit
+    path: ..
 
 settings:
   base:
