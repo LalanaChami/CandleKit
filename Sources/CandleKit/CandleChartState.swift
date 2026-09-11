@@ -63,6 +63,11 @@ public final class CandleChartState {
     /// 1 = all visible. Driven by `appearDisplayLink`; read in the Canvas to stagger per-candle opacity.
     @ObservationIgnored var appearPhase: Double = 1.0
     @ObservationIgnored private var appearDisplayLink: CADisplayLink?
+    /// Cached from the first full `makeFrame` call when an animation starts. While `appearPhase < 1`
+    /// and data is unchanged, `makeFrame` returns this immediately so the 120 Hz display link does
+    /// not repeatedly run O(visible) price/tick/volume work on every animation frame.
+    @ObservationIgnored private var cachedAnimationFrame: ChartFrame?
+    @ObservationIgnored private var cachedAnimationSize: CGSize = .zero
 
     @ObservationIgnored private var springDisplayLink: CADisplayLink?
     @ObservationIgnored private var springTargetViewport: Viewport?
@@ -309,6 +314,12 @@ public final class CandleChartState {
     private func stopAppearAnimation() {
         appearDisplayLink?.invalidate()
         appearDisplayLink = nil
+        // If cancelled mid-animation (e.g., by a gesture), snap to fully visible so the
+        // cached-frame early-return is never reached during normal scrolling or zooming.
+        if appearPhase < 1.0 {
+            appearPhase = 1.0
+            cachedAnimationFrame = nil
+        }
     }
 
     // MARK: Rendering
@@ -334,17 +345,23 @@ public final class CandleChartState {
         viewport.apply(change, previousCount: summary?.count ?? 0, newCount: newCandles.count, rightPadding: rightPadding)
         summary = SeriesSummary(newCandles)
         candles = newCandles
-        // Trigger the candle appear animation on initial load or a full series replacement (timeframe
-        // or product change). `.replaced` fires when the new data is unrelated to what was shown before;
-        // `chartState.candles` retains old data while the skeleton is shown, so `wasEmpty` would always
-        // be false on a periodicity change — `SeriesChange` is the right discriminator here.
+        // Trigger the candle appear animation on initial load or a full series replacement.
+        // `startAppearAnimation` only mutates @ObservationIgnored properties (the CADisplayLink),
+        // so it is safe to call directly here without deferring via Task.
         if (change == .initial || change == .replaced) && !newCandles.isEmpty {
             appearPhase = 0.0
-            Task { [weak self] in
-                guard let self else { return }
-                self.startAppearAnimation()
-            }
+            cachedAnimationFrame = nil   // stale cache from a previous run must not be reused
+            startAppearAnimation()
         }
+
+        // While the appear animation is running and data hasn't changed, skip the O(visible)
+        // price/tick/volume work — the Canvas reads state.appearPhase directly, so skipping
+        // makeFrame's heavy computation does not affect what the animation draws.
+        if appearPhase < 1.0, change == .unchanged,
+           let cached = cachedAnimationFrame, cachedAnimationSize == size {
+            return cached
+        }
+
         if change != .unchanged {
             cachedInterval = TimeScale.estimatedInterval(of: newCandles)
         }
@@ -389,7 +406,7 @@ public final class CandleChartState {
             interval: cachedInterval
         )
 
-        return ChartFrame(
+        let frame = ChartFrame(
             candles: newCandles,
             layout: layout,
             viewport: viewport,
@@ -404,6 +421,14 @@ public final class CandleChartState {
             indicators: indicators,
             indicatorSeries: series
         )
+
+        // Store this frame so subsequent animation ticks can return immediately without recomputing.
+        if appearPhase < 1.0 {
+            cachedAnimationFrame = frame
+            cachedAnimationSize  = size
+        }
+
+        return frame
     }
 
     // MARK: Private

@@ -28,7 +28,7 @@ struct MarketView: View {
 
                 chart
                     .frame(maxHeight: .infinity)
-                    .animation(.easeInOut(duration: 0.35), value: feed.candles.isEmpty)
+                    .animation(.easeInOut(duration: 0.15), value: feed.candles.isEmpty)
 
                 footer
             }
