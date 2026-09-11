@@ -299,7 +299,7 @@ public final class CandleChartState {
 
     @objc private func stepAppearAnimation(_ link: CADisplayLink) {
         let elapsed = link.targetTimestamp - link.timestamp
-        appearPhase = min(1.0, appearPhase + elapsed / 0.4)
+        appearPhase = min(1.0, appearPhase + elapsed / 0.5)
         revision &+= 1
         if appearPhase >= 1.0 {
             stopAppearAnimation()

@@ -163,25 +163,29 @@ struct BaseLayerRenderer {
         }
     }
 
-    /// Appear-animation path: draws each visible candle with a staggered opacity so candles
-    /// materialize left-to-right (oldest first). Each candle's fade window occupies 30 % of the
-    /// total phase, with the stagger eating the first 70 %, so the leftmost starts at phase 0 and
-    /// the rightmost finishes at phase 1.0. Per-candle draw calls are acceptable here because the
-    /// animation runs for only ~0.4 s; `drawCandles` resumes its batched path approach afterwards.
+    /// Appear-animation path. A reveal line sweeps left-to-right across the plot at constant
+    /// speed (pixels/second, not index-fraction), so every candle gets the same exposure time
+    /// regardless of how many are on screen or how far the user has zoomed in. Each candle fades
+    /// in over a zone equal to 2.5 candle slots wide, giving a soft leading edge on the wave.
+    /// Per-candle draw calls are acceptable because the animation runs for only ~0.5 s;
+    /// `drawCandles` resumes its batched path approach once `appearPhase` reaches 1.0.
     private func drawAnimatedCandles(in context: inout GraphicsContext) {
-        let visible = frame.visible
-        let count = visible.count
-        guard count > 0 else { return }
+        guard !frame.visible.isEmpty else { return }
 
         let (bodyWidth, wickWidth) = widthsInPixels
         let scale = pixels.scale
         let drawsBodies = bodyWidth > wickWidth
 
-        for (position, index) in visible.enumerated() {
-            let t = count > 1 ? Double(position) / Double(count - 1) : 1.0
-            let fadeStart = t * 0.7
-            let fadeEnd   = fadeStart + 0.3
-            let opacity   = max(0, min(1, (appearPhase - fadeStart) / (fadeEnd - fadeStart)))
+        // The reveal line moves from (plotMinX - fadeZone) to (plotMaxX + fadeZone) as phase
+        // goes 0→1, so the first candle starts fading in at phase 0 and the last finishes at 1.
+        let plotMinX = Double(frame.layout.plot.minX)
+        let plotMaxX = Double(frame.layout.plot.maxX)
+        let fadeZone = max(12.0, frame.viewport.spacing * 2.5)
+        let revealX  = (plotMinX - fadeZone) + appearPhase * (plotMaxX - plotMinX + 2 * fadeZone)
+
+        for index in frame.visible {
+            let cx      = frame.centerX(ofCandle: index)
+            let opacity = max(0, min(1, (revealX - cx) / fadeZone))
             guard opacity > 0 else { continue }
 
             var localContext = context
@@ -192,18 +196,18 @@ struct BaseLayerRenderer {
             let wickX    = (bodyLeft + (bodyWidth - wickWidth) / 2) / scale
             let wickPts  = wickWidth / scale
 
-            let highY    = pixels.snap(frame.y(forPrice: candle.high))
-            let lowY     = pixels.snap(frame.y(forPrice: candle.low))
-            let openY    = pixels.snap(frame.y(forPrice: candle.open))
-            let closeY   = pixels.snap(frame.y(forPrice: candle.close))
-            let bodyTop  = min(openY, closeY)
-            let bodyH    = max(abs(openY - closeY), pixels.hairline)
-            let body     = CGRect(x: bodyLeft / scale, y: bodyTop, width: bodyWidth / scale, height: bodyH)
-            let color    = candle.isBullish ? style.upColor : style.downColor
+            let highY   = pixels.snap(frame.y(forPrice: candle.high))
+            let lowY    = pixels.snap(frame.y(forPrice: candle.low))
+            let openY   = pixels.snap(frame.y(forPrice: candle.open))
+            let closeY  = pixels.snap(frame.y(forPrice: candle.close))
+            let bodyTop = min(openY, closeY)
+            let bodyH   = max(abs(openY - closeY), pixels.hairline)
+            let body    = CGRect(x: bodyLeft / scale, y: bodyTop, width: bodyWidth / scale, height: bodyH)
+            let color   = candle.isBullish ? style.upColor : style.downColor
 
             if candle.isBullish && style.hollowUpCandles && drawsBodies {
                 var wickPath = Path()
-                wickPath.addRect(CGRect(x: wickX, y: highY,      width: wickPts, height: max(0, bodyTop - highY)))
+                wickPath.addRect(CGRect(x: wickX, y: highY,     width: wickPts, height: max(0, bodyTop - highY)))
                 wickPath.addRect(CGRect(x: wickX, y: body.maxY, width: wickPts, height: max(0, lowY - body.maxY)))
                 localContext.fill(wickPath, with: .color(color))
                 localContext.stroke(
