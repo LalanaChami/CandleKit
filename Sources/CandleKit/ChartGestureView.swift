@@ -1,4 +1,5 @@
 #if os(iOS)
+import AudioToolbox
 import SwiftUI
 import UIKit
 
@@ -70,6 +71,14 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     private lazy var impactMedium = UIImpactFeedbackGenerator(style: .medium)
     private lazy var impactRigid  = UIImpactFeedbackGenerator(style: .rigid)
     private lazy var impactSoft   = UIImpactFeedbackGenerator(style: .soft)
+
+    // MARK: Sound IDs — respect silent mode via AudioServicesPlaySystemSound
+
+    private enum Sound {
+        static let peek: SystemSoundID = 1519   // very light tap
+        static let pop:  SystemSoundID = 1520   // medium click
+        static let nope: SystemSoundID = 1521   // firm stop
+    }
 
     // MARK: Zoom-limit detection
 
@@ -156,6 +165,7 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
                 let spacing = state.viewport.spacing
                 if spacing <= state.zoomLimits.minimumSpacing + 1e-9 || spacing >= state.zoomLimits.maximumSpacing - 1e-9 {
                     impactRigid.impactOccurred()
+                    AudioServicesPlaySystemSound(Sound.nope)
                     didFireZoomLimitHaptic = true
                 }
             }
@@ -170,11 +180,13 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
         case .began:
             stopAllAnimations()
             impactMedium.impactOccurred()
+            AudioServicesPlaySystemSound(Sound.pop)
             state.updateCrosshair(x: location.x, y: location.y)
         case .changed:
             state.updateCrosshair(x: location.x, y: location.y)
         default:
             impactSoft.impactOccurred()
+            AudioServicesPlaySystemSound(Sound.peek)
             state.clearCrosshair()
         }
     }
@@ -183,6 +195,7 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
         guard recognizer.state == .ended else { return }
         stopAllAnimations()
         impactMedium.impactOccurred()
+        AudioServicesPlaySystemSound(Sound.pop)
         state.animatedResetZoom()
     }
 
@@ -226,6 +239,7 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
         let hitEdge = state.pan(byPoints: momentumVelocity * elapsed)
         if hitEdge && !firedEdgeHaptic {
             impactLight.impactOccurred()
+            AudioServicesPlaySystemSound(Sound.peek)
             firedEdgeHaptic = true
         }
         if hitEdge || abs(momentumVelocity) < Self.stopVelocity {
