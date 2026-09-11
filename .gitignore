@@ -1,7 +1,10 @@
 .build/
 .DS_Store
-.claude/
 *.xcuserstate
 xcuserdata/
 DerivedData/
 Demo/CandleKitDemo.xcodeproj
+
+# Claude Code: commit shared project rules (CLAUDE.md, .claude/rules/), keep personal files local.
+.claude/settings.local.json
+CLAUDE.local.md
