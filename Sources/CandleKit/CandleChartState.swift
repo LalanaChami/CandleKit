@@ -1,5 +1,6 @@
 #if os(iOS)
 import Observation
+import QuartzCore
 import SwiftUI
 
 /// Scroll position, zoom level and crosshair for a ``CandlestickChart``.
@@ -41,6 +42,19 @@ public final class CandleChartState {
     @ObservationIgnored private var oldestRequestCount: Int?
     @ObservationIgnored private var crosshairHandler: ((Candle?) -> Void)?
     @ObservationIgnored private var oldestCandleHandler: (() -> Void)?
+
+    // MARK: Rubber-band and spring-animation state (not observed)
+
+    /// True while the viewport is intentionally held outside the clamped data range (rubber-band
+    /// drag or spring-back). `makeFrame` skips its clamp step while this is set so the overscroll
+    /// is rendered rather than immediately corrected.
+    @ObservationIgnored var isRubberBanding = false
+
+    @ObservationIgnored private var springDisplayLink: CADisplayLink?
+    @ObservationIgnored private var springTargetViewport: Viewport?
+    @ObservationIgnored private var springRightEdgeVelocity: Double = 0
+    @ObservationIgnored private var springSpacingVelocity: Double = 0
+    @ObservationIgnored private var springLastTimestamp: CFTimeInterval = 0
 
     let zoomLimits: ZoomLimits
     let defaultSpacing: Double
@@ -97,6 +111,48 @@ public final class CandleChartState {
         return hitEdge
     }
 
+    /// Pans with rubber-band resistance at the data edges.
+    ///
+    /// Resistance grows as the overscroll distance increases, matching UIScrollView's feel.
+    /// Returns `true` while the viewport is in (or just entered) overscroll territory. Call
+    /// `startSpringBack()` on the coordinator when the drag ends in overscroll.
+    @discardableResult
+    func panForDrag(byPoints dx: Double, plotWidth: Double) -> Bool {
+        // Compute resistance from the current overscroll before this delta is applied.
+        let currentClamped = clampedToData(viewport)
+        let currentOverscrollPts = (viewport.rightEdge - currentClamped.rightEdge) * viewport.spacing
+        let factor: Double
+        if abs(currentOverscrollPts) > 0 {
+            factor = max(0.05, 1.0 - min(abs(currentOverscrollPts) / plotWidth, 0.8) * 0.55)
+        } else {
+            factor = 1.0
+        }
+
+        var moved = viewport
+        moved.pan(byPoints: dx * factor)
+        let clamped = clampedToData(moved)
+        let hitEdge = abs(clamped.rightEdge - moved.rightEdge) > 1e-9
+
+        if hitEdge || isRubberBanding {
+            isRubberBanding = true
+            viewport = moved
+
+            // If the user has panned back within bounds, snap and exit.
+            let newOverscrollPts = (viewport.rightEdge - clampedToData(viewport).rightEdge) * viewport.spacing
+            if abs(newOverscrollPts) < 0.5 {
+                viewport = clampedToData(viewport)
+                isRubberBanding = false
+                requestOlderCandlesIfNeeded()
+            }
+        } else {
+            viewport = clamped
+            requestOlderCandlesIfNeeded()
+        }
+
+        revision &+= 1
+        return isRubberBanding
+    }
+
     func zoom(by scale: Double, anchorX: Double) {
         viewport.zoom(by: scale, anchorX: anchorX, width: plotWidth, limits: zoomLimits)
         commitViewport()
@@ -116,6 +172,102 @@ public final class CandleChartState {
         crosshairIndex = nil
         crosshairY = nil
         crosshairHandler?(nil)
+    }
+
+    // MARK: Rubber-band support (used by ChartGestureCoordinator)
+
+    /// How far past the clamped data edge the viewport currently sits, in points.
+    /// Positive means past the right (newest) edge; negative means past the left (oldest) edge.
+    func overscrollPoints() -> Double {
+        let clamped = clampedToData(viewport)
+        return (viewport.rightEdge - clamped.rightEdge) * viewport.spacing
+    }
+
+    /// The right-edge value the viewport would have after clamping.
+    func clampedRightEdge() -> Double {
+        clampedToData(viewport).rightEdge
+    }
+
+    /// Moves the right edge directly without clamping, for use during spring-back animation.
+    /// Callers must ensure `isRubberBanding` is true so `makeFrame` doesn't re-clamp immediately.
+    func setRightEdgeDirect(_ edge: Double) {
+        viewport.rightEdge = edge
+        revision &+= 1
+    }
+
+    /// Snaps the viewport to its clamped position and exits rubber-band mode.
+    func snapToClamped() {
+        viewport = clampedToData(viewport)
+        isRubberBanding = false
+        revision &+= 1
+        requestOlderCandlesIfNeeded()
+    }
+
+    // MARK: Spring animations (animated reset / scroll-to-latest)
+
+    /// Animates to the reset-zoom viewport (default spacing, latest candle visible).
+    func animatedResetZoom() {
+        let target = Viewport.latest(count: candles.count, spacing: defaultSpacing, rightPadding: rightPadding)
+        startSpringAnimation(to: target)
+    }
+
+    /// Animates to show the latest candle while keeping the current zoom level.
+    func animatedScrollToLatest() {
+        let target = Viewport.latest(count: candles.count, spacing: viewport.spacing, rightPadding: rightPadding)
+        startSpringAnimation(to: target)
+    }
+
+    /// Stops any in-progress spring animation without snapping to the target.
+    func cancelAnimation() {
+        stopSpringAnimation()
+    }
+
+    private func startSpringAnimation(to target: Viewport) {
+        stopSpringAnimation()
+        springTargetViewport = target
+        springRightEdgeVelocity = 0
+        springSpacingVelocity = 0
+        springLastTimestamp = CACurrentMediaTime()
+        let link = CADisplayLink(target: self, selector: #selector(stepSpringAnimation(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+        link.add(to: .main, forMode: .common)
+        springDisplayLink = link
+    }
+
+    @objc private func stepSpringAnimation(_ link: CADisplayLink) {
+        guard let target = springTargetViewport else { stopSpringAnimation(); return }
+        let now = link.timestamp
+        let elapsed = min(max(now - springLastTimestamp, 0), 1.0 / 30)
+        springLastTimestamp = now
+
+        // Critically-damped spring: stiffness=180, damping=2√180≈26.8 → use 27.
+        let stiffness = 180.0
+        let damping = 27.0
+
+        let edgeDelta = viewport.rightEdge - target.rightEdge
+        springRightEdgeVelocity += (-stiffness * edgeDelta - damping * springRightEdgeVelocity) * elapsed
+        viewport.rightEdge += springRightEdgeVelocity * elapsed
+
+        let spacingDelta = viewport.spacing - target.spacing
+        springSpacingVelocity += (-stiffness * spacingDelta - damping * springSpacingVelocity) * elapsed
+        viewport.spacing += springSpacingVelocity * elapsed
+
+        revision &+= 1
+
+        // Settle: both dimensions within half a point and moving slowly.
+        let edgeSettled = abs(edgeDelta * viewport.spacing) < 0.5 && abs(springRightEdgeVelocity * viewport.spacing) < 5
+        let spacingSettled = abs(spacingDelta) < 0.05 && abs(springSpacingVelocity) < 0.1
+        if edgeSettled && spacingSettled {
+            viewport = clampedToData(target)
+            revision &+= 1
+            stopSpringAnimation()
+        }
+    }
+
+    private func stopSpringAnimation() {
+        springDisplayLink?.invalidate()
+        springDisplayLink = nil
+        springTargetViewport = nil
     }
 
     // MARK: Rendering
@@ -141,7 +293,11 @@ public final class CandleChartState {
         viewport.apply(change, previousCount: summary?.count ?? 0, newCount: newCandles.count, rightPadding: rightPadding)
         summary = SeriesSummary(newCandles)
         candles = newCandles
-        viewport = clampedToData(viewport)
+        // Skip the clamp while the user is in rubber-band overscroll or a spring-back is running,
+        // so the intentional out-of-bounds position is rendered rather than immediately corrected.
+        if !isRubberBanding {
+            viewport = clampedToData(viewport)
+        }
 
         let series = indicatorCache.series(for: indicators.map(\.kind), candles: newCandles)
         let visible = viewport.visibleRange(width: plotWidth, count: newCandles.count)

@@ -20,15 +20,15 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done · `[-]` droppe
 
 **Goal:** the package and demo compile, tests pass, and CI keeps it that way. Nothing else starts until this is done.
 
-- [ ] **0.1 Core compiles and tests pass.** Run `swift build` and `swift test` on macOS and fix what fails in `Sources/CandleKitCore/`. If a test fails, investigate the implementation before touching the expected values (see CLAUDE.md pitfalls). *Verify: CLI.*
-- [ ] **0.2 SwiftUI layer compiles for iOS.** Run `xcodebuild build -scheme CandleKit -destination 'generic/platform=iOS Simulator'` and fix errors. Likely trouble spots, all written without a compiler:
+- [x] **0.1 Core compiles and tests pass.** Run `swift build` and `swift test` on macOS and fix what fails in `Sources/CandleKitCore/`. If a test fails, investigate the implementation before touching the expected values (see CLAUDE.md pitfalls). *Verify: CLI.* — No fixes needed; `swift build` and `swift test` both passed clean (36/36 tests, 6 suites) on the first run.
+- [x] **0.2 SwiftUI layer compiles for iOS.** Run `xcodebuild build -scheme CandleKit -destination 'generic/platform=iOS Simulator'` and fix errors. Likely trouble spots, all written without a compiler:
   - `ChartGestureView.swift`: `@objc` selectors on a `@MainActor` class, `CADisplayLink` target, delegate isolation.
   - `ChartAccessibility.swift`: exact initializer signatures of `AXNumericDataAxisDescriptor`, `AXDataSeriesDescriptor`, `AXDataPoint` and `AXChartDescriptor`, and whether the value-description closures must be `@Sendable`.
   - `CrosshairLayer.swift`: `sensoryFeedback(_:trigger:condition:)`.
   - `CandlestickChart.swift`: `@unknown default` on `AccessibilityAdjustmentDirection`, and `let _ =` statements in view builders.
   - `CandleChartState.swift`: `@Observable` combined with `@MainActor`, `@ObservationIgnored` and `private(set)`.
 
-  Fix root causes; don't add escape hatches. List each non-obvious fix in the PR description. *Verify: CLI.*
+  Fix root causes; don't add escape hatches. List each non-obvious fix in the PR description. *Verify: CLI.* — No fixes needed; `xcodebuild build -scheme CandleKit -destination 'generic/platform=iOS Simulator'` passed with zero errors and zero warnings on the first run.
 - [ ] **0.3 Demo builds against the local package.**
   - Change `Demo/project.yml` from the GitHub URL to `path: ..`.
   - Rewrite `Demo/README.md` for the monorepo layout: remove the "separate repository" and "Update to Latest Package Versions" instructions.
@@ -49,6 +49,14 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done · `[-]` droppe
   - Decide on formatting: `swift format` ships with the Swift 6 toolchain. If adopted, add a config and a CI lint step in a separate PR.
 
   *Verify: CLI.*
+- [ ] **0.7 Scroll and haptic UX polish** (parallel-safe).
+  - Rubber-band overscroll at both data edges with resistance proportional to overscroll distance, spring-back on release.
+  - `makeFrame` skips viewport clamping while `isRubberBanding` is set, so the overscroll renders correctly.
+  - Haptics: medium impact on crosshair engage, soft on dismiss, light on momentum edge-hit (once per scroll run), rigid on zoom limit (once per pinch session), medium on double-tap reset.
+  - Spring-animated zoom reset (double-tap uses `animatedResetZoom()`; programmatic `resetZoom()` still snaps).
+  - Long-press minimum duration reduced 0.25 s → 0.15 s.
+
+  *Verify: CLI build. Device: rubber-band feel at both edges, correct haptic at each event, spring-back with no bounce, no double-firing on crosshair appear.*
 
 **Exit criteria:** CI is green on `main`; the demo runs in the simulator with all four tabs working; no runtime warnings from CandleKit.
 

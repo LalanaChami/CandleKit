@@ -27,7 +27,7 @@ struct ChartGestureView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: ChartGestureCoordinator) {
-        coordinator.stopMomentum()
+        coordinator.stopAllAnimations()
     }
 }
 
@@ -40,14 +40,40 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     private let longPressRecognizer: UILongPressGestureRecognizer
     private let doubleTapRecognizer: UITapGestureRecognizer
 
-    private var displayLink: CADisplayLink?
+    // MARK: Momentum
+
+    private var momentumDisplayLink: CADisplayLink?
     private var momentumVelocity: Double = 0
-    private var lastFrameTimestamp: CFTimeInterval = 0
+    private var lastMomentumTimestamp: CFTimeInterval = 0
+    private var firedEdgeHaptic = false
 
     /// Matches `UIScrollView.DecelerationRate.normal`: velocity retained per millisecond.
     private static let decelerationPerMillisecond = 0.998
     private static let minimumMomentumVelocity = 80.0
     private static let stopVelocity = 10.0
+
+    // MARK: Rubber-band spring-back
+
+    private var springDisplayLink: CADisplayLink?
+    private var springTargetRightEdge: Double = 0
+    private var springEdgeVelocity: Double = 0
+    private var lastSpringTimestamp: CFTimeInterval = 0
+    private var isOverscrolling = false
+
+    /// Critically-damped spring for snap-back: stiffness=300, damping=2√300≈34.6 → use 35.
+    private static let springStiffness = 300.0
+    private static let springDamping = 35.0
+
+    // MARK: Haptic generators
+
+    private lazy var impactLight  = UIImpactFeedbackGenerator(style: .light)
+    private lazy var impactMedium = UIImpactFeedbackGenerator(style: .medium)
+    private lazy var impactRigid  = UIImpactFeedbackGenerator(style: .rigid)
+    private lazy var impactSoft   = UIImpactFeedbackGenerator(style: .soft)
+
+    // MARK: Zoom-limit detection
+
+    private var didFireZoomLimitHaptic = false
 
     init(state: CandleChartState) {
         self.state = state
@@ -62,7 +88,7 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
         panRecognizer.addTarget(self, action: #selector(handlePan(_:)))
         pinchRecognizer.addTarget(self, action: #selector(handlePinch(_:)))
         longPressRecognizer.addTarget(self, action: #selector(handleLongPress(_:)))
-        longPressRecognizer.minimumPressDuration = 0.25
+        longPressRecognizer.minimumPressDuration = 0.15
         doubleTapRecognizer.addTarget(self, action: #selector(handleDoubleTap(_:)))
         doubleTapRecognizer.numberOfTapsRequired = 2
 
@@ -78,34 +104,54 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
         case .began:
-            stopMomentum()
+            stopAllAnimations()
+            state.cancelAnimation()
+            impactLight.prepare()
+            isOverscrolling = false
             applyTranslation(of: recognizer)
         case .changed:
             applyTranslation(of: recognizer)
         case .ended:
-            startMomentum(velocity: Double(recognizer.velocity(in: recognizer.view).x))
+            if isOverscrolling {
+                startSpringBack()
+            } else {
+                startMomentum(velocity: Double(recognizer.velocity(in: recognizer.view).x))
+            }
+            isOverscrolling = false
         default:
-            break
+            isOverscrolling = false
+            state.snapToClamped()
         }
     }
 
     private func applyTranslation(of recognizer: UIPanGestureRecognizer) {
         let translation = recognizer.translation(in: recognizer.view)
         recognizer.setTranslation(.zero, in: recognizer.view)
-        state.pan(byPoints: Double(translation.x))
+        let plotWidth = Double(recognizer.view?.bounds.width ?? 375)
+        isOverscrolling = state.panForDrag(byPoints: Double(translation.x), plotWidth: plotWidth)
     }
 
     @objc private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
         switch recognizer.state {
-        case .began, .changed:
-            if recognizer.state == .began {
-                stopMomentum()
-            }
-            // With one finger lifted the focal point jumps; wait until both are down again.
+        case .began:
+            stopAllAnimations()
+            state.cancelAnimation()
+            impactRigid.prepare()
+            didFireZoomLimitHaptic = false
+        case .changed:
             guard recognizer.numberOfTouches >= 2 else { return }
             let anchor = recognizer.location(in: recognizer.view)
             state.zoom(by: Double(recognizer.scale), anchorX: Double(anchor.x))
             recognizer.scale = 1
+
+            // After zoom(), spacing is clamped to ZoomLimits. If it sits at a boundary, the limit was hit.
+            if !didFireZoomLimitHaptic {
+                let spacing = state.viewport.spacing
+                if spacing <= state.zoomLimits.minimumSpacing + 1e-9 || spacing >= state.zoomLimits.maximumSpacing - 1e-9 {
+                    impactRigid.impactOccurred()
+                    didFireZoomLimitHaptic = true
+                }
+            }
         default:
             break
         }
@@ -115,19 +161,22 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
         let location = recognizer.location(in: recognizer.view)
         switch recognizer.state {
         case .began:
-            stopMomentum()
+            stopAllAnimations()
+            impactMedium.impactOccurred()
             state.updateCrosshair(x: location.x, y: location.y)
         case .changed:
             state.updateCrosshair(x: location.x, y: location.y)
         default:
+            impactSoft.impactOccurred()
             state.clearCrosshair()
         }
     }
 
     @objc private func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else { return }
-        stopMomentum()
-        state.resetZoom()
+        stopAllAnimations()
+        impactMedium.impactOccurred()
+        state.animatedResetZoom()
     }
 
     // MARK: UIGestureRecognizerDelegate
@@ -150,33 +199,82 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     // MARK: Momentum
 
     private func startMomentum(velocity: Double) {
-        stopMomentum()
         guard abs(velocity) > Self.minimumMomentumVelocity else { return }
         momentumVelocity = velocity
-        lastFrameTimestamp = CACurrentMediaTime()
+        firedEdgeHaptic = false
+        lastMomentumTimestamp = CACurrentMediaTime()
         let link = CADisplayLink(target: self, selector: #selector(stepMomentum(_:)))
         // ProMotion devices also need CADisableMinimumFrameDurationOnPhone in the app's Info.plist.
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
-        displayLink = link
+        momentumDisplayLink = link
     }
 
     @objc private func stepMomentum(_ link: CADisplayLink) {
         let now = link.timestamp
-        let elapsed = min(max(now - lastFrameTimestamp, 0), 1.0 / 30)
-        lastFrameTimestamp = now
+        let elapsed = min(max(now - lastMomentumTimestamp, 0), 1.0 / 30)
+        lastMomentumTimestamp = now
         momentumVelocity *= pow(Self.decelerationPerMillisecond, elapsed * 1_000)
         let hitEdge = state.pan(byPoints: momentumVelocity * elapsed)
+        if hitEdge && !firedEdgeHaptic {
+            impactLight.impactOccurred()
+            firedEdgeHaptic = true
+        }
         if hitEdge || abs(momentumVelocity) < Self.stopVelocity {
             stopMomentum()
         }
     }
 
-    /// Display links retain their target, so this must run when momentum ends or the view goes away.
-    func stopMomentum() {
-        displayLink?.invalidate()
-        displayLink = nil
+    private func stopMomentum() {
+        momentumDisplayLink?.invalidate()
+        momentumDisplayLink = nil
         momentumVelocity = 0
     }
+
+    // MARK: Rubber-band spring-back
+
+    private func startSpringBack() {
+        stopSpring()
+        state.isRubberBanding = true  // keep makeFrame from clamping during spring-back
+        springTargetRightEdge = state.clampedRightEdge()
+        springEdgeVelocity = 0
+        lastSpringTimestamp = CACurrentMediaTime()
+        let link = CADisplayLink(target: self, selector: #selector(stepSpringBack(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+        link.add(to: .main, forMode: .common)
+        springDisplayLink = link
+    }
+
+    @objc private func stepSpringBack(_ link: CADisplayLink) {
+        let now = link.timestamp
+        let elapsed = min(max(now - lastSpringTimestamp, 0), 1.0 / 30)
+        lastSpringTimestamp = now
+
+        let displacement = state.viewport.rightEdge - springTargetRightEdge
+        springEdgeVelocity += (-Self.springStiffness * displacement - Self.springDamping * springEdgeVelocity) * elapsed
+        state.setRightEdgeDirect(state.viewport.rightEdge + springEdgeVelocity * elapsed)
+
+        let displacementPts = abs(displacement * state.viewport.spacing)
+        let velocityPts = abs(springEdgeVelocity * state.viewport.spacing)
+        if displacementPts < 0.5 && velocityPts < 5 {
+            state.snapToClamped()
+            stopSpring()
+        }
+    }
+
+    private func stopSpring() {
+        springDisplayLink?.invalidate()
+        springDisplayLink = nil
+        springEdgeVelocity = 0
+    }
+
+    // MARK: Combined stop
+
+    /// Stops momentum scrolling and any rubber-band spring-back. Must be called when any new gesture begins.
+    func stopAllAnimations() {
+        stopMomentum()
+        stopSpring()
+    }
+
 }
 #endif
