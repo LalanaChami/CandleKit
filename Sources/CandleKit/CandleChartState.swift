@@ -333,12 +333,12 @@ public final class CandleChartState {
         let change = SeriesChange.between(summary, newCandles)
         viewport.apply(change, previousCount: summary?.count ?? 0, newCount: newCandles.count, rightPadding: rightPadding)
         summary = SeriesSummary(newCandles)
-        let wasEmpty = candles.isEmpty
         candles = newCandles
-        // Start the one-shot candle appear animation whenever data first arrives after an empty state
-        // (initial load, timeframe switch, product change). Deferred via Task so it runs after this
-        // view update rather than mutating state mid-render.
-        if wasEmpty && !newCandles.isEmpty {
+        // Trigger the candle appear animation on initial load or a full series replacement (timeframe
+        // or product change). `.replaced` fires when the new data is unrelated to what was shown before;
+        // `chartState.candles` retains old data while the skeleton is shown, so `wasEmpty` would always
+        // be false on a periodicity change — `SeriesChange` is the right discriminator here.
+        if (change == .initial || change == .replaced) && !newCandles.isEmpty {
             appearPhase = 0.0
             Task { [weak self] in
                 guard let self else { return }
