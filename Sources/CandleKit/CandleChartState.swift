@@ -236,9 +236,14 @@ public final class CandleChartState {
         startSpringAnimation(to: target)
     }
 
-    /// Stops any in-progress spring or appear animation without snapping to targets.
+    /// Stops any in-progress spring or appear animation. Snaps the appear animation to
+    /// fully visible so a gesture that interrupts mid-animation never leaves candles half-drawn.
     func cancelAnimation() {
         stopSpringAnimation()
+        if appearPhase < 1.0 {
+            appearPhase = 1.0
+            cachedAnimationFrame = nil
+        }
         stopAppearAnimation()
     }
 
@@ -314,12 +319,7 @@ public final class CandleChartState {
     private func stopAppearAnimation() {
         appearDisplayLink?.invalidate()
         appearDisplayLink = nil
-        // If cancelled mid-animation (e.g., by a gesture), snap to fully visible so the
-        // cached-frame early-return is never reached during normal scrolling or zooming.
-        if appearPhase < 1.0 {
-            appearPhase = 1.0
-            cachedAnimationFrame = nil
-        }
+        cachedAnimationFrame = nil
     }
 
     // MARK: Rendering
