@@ -244,14 +244,25 @@ public final class CandleChartState {
 
     // MARK: Spring animations (animated reset / scroll-to-latest)
 
-    /// Animates to the reset-zoom viewport (default spacing, latest candle visible).
-    func animatedResetZoom() {
+    /// Like ``resetZoom()``, but eases to the destination with a spring instead of snapping — the
+    /// same animation double-tap-to-reset uses. Prefer this over `resetZoom()` for anything a
+    /// person taps deliberately (a toolbar button, a menu item); reserve the instant version for
+    /// places an animation would be wrong, like restoring state on launch.
+    ///
+    /// Respects Reduce Motion: jumps straight to the destination when it's on, exactly like
+    /// `resetZoom()`.
+    public func animatedResetZoom() {
         let target = Viewport.latest(count: candles.count, spacing: defaultSpacing, rightPadding: rightPadding)
         startSpringAnimation(to: target)
     }
 
-    /// Animates to show the latest candle while keeping the current zoom level.
-    func animatedScrollToLatest() {
+    /// Like ``scrollToLatest()``, but eases to the destination with a spring instead of snapping.
+    /// Keeps the current zoom level, unlike ``animatedResetZoom()``, which also resets it. Prefer
+    /// this over `scrollToLatest()` for a "jump to latest" control a person taps.
+    ///
+    /// Respects Reduce Motion: jumps straight to the destination when it's on, exactly like
+    /// `scrollToLatest()`.
+    public func animatedScrollToLatest() {
         let target = Viewport.latest(count: candles.count, spacing: viewport.spacing, rightPadding: rightPadding)
         startSpringAnimation(to: target)
     }

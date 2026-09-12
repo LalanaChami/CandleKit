@@ -6,6 +6,26 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Fixed — CI build failure
+
+`animatedResetZoom()` and `animatedScrollToLatest()` were declared with no access modifier
+(`internal`, Swift's default) when added a few commits back for the double-tap-to-reset gesture,
+which only ever called them from within the `CandleKit` module. A later change (this changelog's
+own "Jump to latest" and "Reset zoom" entries) had the Demo call them directly from its own module,
+which needs `public` — an oversight on my part, since I recommended that change without checking
+the methods it was calling were actually exposed. Xcode Cloud caught it correctly:
+
+```
+error: 'animatedResetZoom' is inaccessible due to 'internal' protection level
+error: 'animatedScrollToLatest' is inaccessible due to 'internal' protection level
+```
+
+Both are now `public`, with doc comments explaining when to prefer them over the instant
+`resetZoom()` / `scrollToLatest()`. Audited every other CandleKit symbol the Demo references
+against its declared access level — nothing else is affected.
+
+## Earlier unreleased work
+
 ### Fixed — docs
 
 - `docs/PERFORMANCE.md`: the `xctrace` example was wrong in two ways. `--output` was placed after
