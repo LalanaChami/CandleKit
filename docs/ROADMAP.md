@@ -1,6 +1,6 @@
 # CandleKit roadmap
 
-Last reviewed: 2026-09-11
+Last reviewed: 2026-09-12
 
 This is the working plan for CandleKit and its demo. It's written to be executed one task at a time, mostly by Claude Code, with the maintainer verifying on device what can't be checked from the command line.
 
@@ -13,6 +13,20 @@ This is the working plan for CandleKit and its demo. It's written to be executed
 - Don't silently expand scope. If a task turns out to need more than described, stop and report back.
 
 Status key: `[ ]` not started · `[~]` in progress · `[x]` done · `[-]` dropped (with reason)
+
+**On scope.** Phases 5–7 (indicators, drawing tools, configuration and persistence) are the bulk of
+what makes a charting library feel complete, and together they're comfortably more work than
+everything in Phases 0–4 combined — realistically a long stretch of sustained effort, not a couple
+of weekends. Two things follow from that, and both are baked into how those phases are written:
+
+1. **The extensibility API matters more than the catalog size.** A well-designed indicator protocol
+   and drawing-tool model means the long tail can be contributed by other people, or added by an
+   adopting app without waiting for a release. Forty built-in indicators and no extension point is a
+   worse product than twelve and a good protocol — and it's the only version of this a small team
+   can actually maintain.
+2. **Tier 1 before Tier 2, always.** Each catalog below is split into the set that gets used
+   constantly and the long tail. Finishing Tier 1 properly — correct, tested against published
+   reference values, documented, fast — beats half-finishing both.
 
 ---
 
@@ -105,7 +119,7 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done · `[-]` droppe
 - [ ] **1.5 Performance baseline.**
   - Profile a release build of the demo's Performance tab with Instruments (Animation Hitches and SwiftUI templates) at 1K, 10K and 100K candles.
   - Confirm the base layer doesn't re-render while only the crosshair moves.
-  - Record device, OS, dataset size, hitch rate and time per frame in `docs/PERFORMANCE.md`. These numbers decide whether 5.4 (incremental indicators) and a Metal renderer are ever needed.
+  - Record device, OS, dataset size, hitch rate and time per frame in `docs/PERFORMANCE.md`. These numbers decide whether 5.8 (incremental indicators) and a Metal renderer are ever needed.
 
   *Verify: Device.*
 
@@ -179,43 +193,178 @@ Each feature ships with a demo example, docs, a CHANGELOG entry and tests where 
 
 ---
 
-## Phase 5: 0.3, indicators and panes
+## Phase 5: 0.3, indicators
 
-- [ ] **5.1 More indicators in Core:** RSI, MACD, Bollinger Bands, VWAP. Test against published reference values, with the source cited in a comment.
-- [ ] **5.2 Custom indicators.** (design first) A public protocol so apps can supply their own series. Decide whether `IndicatorKind` stays an enum of built-ins alongside it.
-- [ ] **5.3 Indicator panes.** (design first) An API like `.indicator(.rsi(14), pane: .below(height: 90))`:
-  - The panes share the horizontal viewport.
-  - The crosshair spans all panes.
-  - Each pane has its own vertical scale and labels.
-  - Volume can move into its own pane.
-  - Accessibility covers every pane.
-- [ ] **5.4 Incremental indicator updates.** Only if the 1.5 baseline shows that recomputing indicators on data change is a measurable cost with live data. Otherwise mark as dropped, citing the numbers.
+**Build the system before the catalog.** `IndicatorKind` is currently an enum with two cases and a
+`values(for:) -> [Double?]` method — one line per candle. That signature cannot express Bollinger
+Bands (three lines plus a fill), MACD (two lines plus a histogram), Ichimoku (five lines plus a
+shaded cloud), or Parabolic SAR (discrete dots). Adding indicators before fixing it means either
+rewriting each one later or bolting on special cases per indicator. Do 5.1 and 5.2 first.
+
+### Architecture
+
+- [ ] **5.1 Indicator protocol and output model.** (design first) Replace the closed enum with a
+      protocol apps can also conform to (this supersedes the old "custom indicators" item — it's
+      the same work, and doing it first costs nothing extra while doing it later costs a migration).
+      The output model needs to cover, at minimum:
+      - a single line (SMA, EMA)
+      - multiple related lines (Bollinger, Keltner, Donchian, Ichimoku)
+      - a filled band or cloud between two lines
+      - a histogram, with positive/negative colouring (MACD, volume delta)
+      - discrete point markers (Parabolic SAR)
+      - horizontal reference levels (RSI's 30/70, MACD's zero line)
+
+      Also decide: where does each indicator declare it belongs on the price pane vs. its own pane,
+      how are its parameters typed (so a settings UI can be generated), and does it carry its own
+      default styling?
+- [ ] **5.2 Renderer primitives for the above.** The `Canvas` renderer currently draws polylines
+      only. Band fills, histograms, point markers and stepped lines are new draw paths; each is
+      batched like the candles are (one path per colour, never per data point) and each needs a
+      pixel-snapping story so it stays crisp.
+- [ ] **5.3 Indicator panes.** (design first — was 5.3, unchanged in substance) An API like
+      `.indicator(.rsi(14), pane: .below(height: 90))`:
+      - Panes share the horizontal viewport.
+      - The crosshair spans all panes, and the header reads out every pane's value at that candle.
+      - Each pane has its own vertical scale, labels and reference levels.
+      - Volume can move into its own pane.
+      - Panes are resizable by dragging the divider, and collapsible.
+      - Accessibility covers every pane.
+
+### Catalog
+
+Two tiers, and the split is deliberate. **Tier 1 is the set that actually gets used.** Most traders
+use a handful of indicators, and shipping those twelve extremely well — correct, tested, fast,
+documented — beats shipping forty of uncertain quality. Tier 2 exists so the long tail has a home,
+and most of it is good "good first issue" community-contribution material once 5.1 lands.
+
+- [ ] **5.4 Tier 1 — overlays:** SMA and EMA (exist), WMA, Bollinger Bands, VWAP (with a
+      session-anchored variant), and a simple session/period high-low band.
+- [ ] **5.5 Tier 1 — oscillators:** RSI, MACD, Stochastic, ATR, OBV.
+- [ ] **5.6 Tier 2 — overlays:** Ichimoku Cloud, SuperTrend, Parabolic SAR, Keltner Channels,
+      Donchian Channels, Pivot Points (classic/Fibonacci/Camarilla).
+- [ ] **5.7 Tier 2 — oscillators:** ADX/DMI, CCI, MFI, Williams %R, ROC/Momentum, Chaikin Money
+      Flow, Volume Profile (this last one is substantially harder than the rest — it's a horizontal
+      histogram binned by price, not a per-candle series, and may not fit the 5.1 output model
+      without an extra case; decide during 5.1 whether to accommodate it or defer it).
+
+**Every indicator in both tiers must document which convention it implements, and test against
+published reference values with the source cited in a comment.** This matters more than it sounds:
+indicator definitions genuinely differ between platforms. RSI can use Wilder's smoothing or a simple
+average; MACD's signal line differs by how it's seeded; Stochastic's %D smoothing period varies;
+ATR has at least three common smoothing variants. A chart that silently disagrees with the numbers a
+user sees on TradingView will be reported as a bug, and "which one is right" is not a question you
+want to answer after the fact. Pick the most widely used convention, say so in the doc comment, and
+where a second convention is common, expose it as a parameter.
+
+- [ ] **5.8 Incremental indicator updates.** (was 5.4) Only if the 1.5 baseline shows recomputation
+      on data change is a measurable cost with live data. Otherwise mark as dropped, citing the
+      numbers.
 
 ---
 
 ## Phase 6: 0.4, drawing tools
 
-- [ ] **6.1 Design note** in `docs/design/drawing-tools.md`, agreed before any code. It covers:
-  - A model owned by the app: `Codable`, anchored to (Date, price).
-  - API shape, for example `.drawings($drawings)` plus a tool mode.
-  - How drawing gestures coexist with pan and long-press.
-  - Hit testing, selection handles, and snapping to open, high, low and close.
-  - Deletion and undo.
-  - VoiceOver access.
-- [ ] **6.2 Horizontal line and trend line.**
-- [ ] **6.3 Ray and rectangle.**
-- [ ] **6.4 Fibonacci retracement** (optional).
+Same principle as Phase 5: the interaction model and the persistence model are the hard parts, and
+every tool afterwards is comparatively mechanical. Get them right once.
 
-**Exit criteria:** drawings survive history prepends and timeframe switches, and round-trip through `Codable`.
+### Architecture
+
+- [ ] **6.1 Design note** in `docs/design/drawing-tools.md`, agreed before any code:
+      - A model owned by the app: `Codable`, anchored to `(Date, price)` pairs — never indices,
+        which shift when history is prepended.
+      - API shape, for example `.drawings($drawings)` plus a current-tool binding.
+      - How drawing gestures coexist with pan, pinch and long-press. This is the crux: entering a
+        drawing mode has to change what a drag means without making the chart feel modal or trapped.
+      - Hit testing with a touch-sized tolerance, selection, and drag handles per anchor.
+      - Z-order, duplicate, lock, and per-drawing visibility.
+      - Deletion, and undo/redo (probably `UndoManager`).
+      - VoiceOver: drawings must be reachable, described, and adjustable, not just visual.
+- [ ] **6.2 Magnet / snapping.** Snap anchors to nearby open/high/low/close values, with a
+      configurable strength and an off switch. Cheap to add during 6.1's interaction work, very
+      annoying to retrofit afterwards.
+
+### Catalog
+
+- [ ] **6.3 Tier 1:** horizontal line, horizontal ray, vertical line, trend line, ray, rectangle,
+      Fibonacci retracement, text note, and a measure tool (drag to read price Δ, % Δ, bar count and
+      elapsed time). These cover the overwhelming majority of real chart annotation.
+- [ ] **6.4 Tier 2:** parallel channel, ellipse, triangle, Fibonacci extension / fan / time zones,
+      Andrews' pitchfork, long and short position tools (entry/target/stop with risk-reward
+      readout), arrow, and callout.
+
+**Exit criteria:** drawings survive history prepends and timeframe switches, round-trip through
+`Codable` without loss, and are fully operable under VoiceOver.
 
 ---
 
-## Phase 7: More platforms
+## Phase 7: Configuration, persistence and comparison
 
-- [ ] **7.1 Mac Catalyst check:** does the iOS build work as-is?
-- [ ] **7.2 Native macOS 14:** `NSViewRepresentable` gesture host, scroll wheel and trackpad magnify, crosshair on hover.
-- [ ] **7.3 visionOS:** input model, and how the chart looks on glass.
-- [ ] **7.4 Metal renderer**, behind the existing renderer seam, only if performance baselines require it.
+The three things that make CandleKit adoptable by a team with an existing app, rather than only by
+someone starting fresh. Promoted ahead of platform expansion because they're worth more to more
+developers.
+
+### Configuration — everything opt-in
+
+- [ ] **7.1 `ChartConfiguration` and feature gating.** (design first) Every capability the chart has
+      should be something a developer can turn off: crosshair, pan, zoom, price-axis drag, drawing
+      tools, indicator panes, replay, haptics, the header. A trading app wants all of it; a portfolio
+      summary screen wants a static sparkline with none of it; a widget can't use any of it. Today
+      the modifiers are ad-hoc (`volumeVisible`, `headerVisible`) — this replaces that with something
+      coherent before the surface grows further.
+
+      Worth deciding here: **does the chart also ship default UI for these?** An indicator picker, a
+      drawing toolbar, and a settings sheet are a large amount of what makes a charting SDK feel
+      complete — and a large amount of opinion to force on an app with its own design system. The
+      recommendation is a **separate `CandleKitUI` product** with ready-made, themeable components
+      that an app can adopt, ignore, or copy as a starting point, so the core stays headless.
+- [ ] **7.2 Per-capability availability lists.** Which indicators and which drawing tools a given
+      app exposes, so `CandleKitUI`'s pickers and an app's own UI can both be driven from one source
+      of truth instead of hard-coding a list in two places.
+
+### Persistence
+
+- [ ] **7.3 `ChartLayout: Codable`.** (was 10.1) One versioned, `Codable` value capturing the style,
+      the active indicators and their parameters, drawings, timeframe, pane sizes and viewport. Needs
+      a schema version and a migration path from day one — layouts are user data, and a user who
+      loses their annotations on app update will not be forgiving about it.
+- [ ] **7.4 Persistence, as an optional companion — not in the core.** You asked about Core Data or
+      SwiftData. **Recommendation: CandleKit's core should stay persistence-agnostic and ship
+      `ChartLayout: Codable` (7.3) as the contract, with a separate optional
+      `CandleKitPersistence` product providing SwiftData `@Model` wrappers for apps that want them.**
+
+      The reasoning, since this is a decision worth disagreeing with explicitly if you see it
+      differently:
+      - Most apps adopting CandleKit already have a persistence stack. A library that brings its own
+        `ModelContainer` forces a second one, complicates CloudKit configuration, and creates
+        migration coupling between the app's schema version and the library's.
+      - A `Codable` value can be stored in SwiftData, Core Data, a file, `UserDefaults`, Keychain,
+        or a server — the app picks. A SwiftData model can only be stored in SwiftData.
+      - Library-owned Core Data / SwiftData schemas are genuinely painful to version across releases,
+        and would make every future indicator or drawing tool a potential migration event.
+      - The SwiftData convenience layer is small — a few model types wrapping the `Codable` value —
+        so offering it as an optional product costs little and locks in nothing.
+
+      If a concrete requirement shows this is wrong (say, layouts need to be queryable by predicate
+      rather than loaded whole), revisit it — but start with `Codable`.
+- [ ] **7.5 Named layout presets.** Save, name, list and switch between layouts; a default layout per
+      symbol or per timeframe. Mostly falls out of 7.3 once it exists.
+
+### Comparison
+
+- [ ] **7.6 Multi-symbol comparison.** (design first — was 9.2) Plot two or more series together:
+      - Normalization modes: percent change from the first visible candle, indexed to 100, or a real
+        secondary price axis.
+      - Per-series colour and line style, with a legend.
+      - The crosshair reads out every series at the hovered candle.
+      - Handling series with differing candle counts or trading calendars — the hard part, and the
+        reason this needs a design note. An index-based x-axis assumes one series defines the
+        positions; a second symbol that doesn't trade on the same days has to be aligned by
+        timestamp, with gaps handled explicitly.
+
+      Decide during the design note whether this is a mode of `CandlestickChart` or a separate public
+      view sharing `CandleKitCore`'s scale math.
+
+---
 
 ## 1.0 criteria
 
@@ -224,6 +373,153 @@ Each feature ships with a demo example, docs, a CHANGELOG entry and tests where 
 - Snapshot and unit coverage for all public features.
 - Accessibility audit done.
 - Used in at least one shipping app.
+
+---
+
+## Beyond 1.0: competing with TradingView and SciChart
+
+Phases 0–7 get CandleKit to a *correct, tested, shipping* candlestick chart. That has to happen
+first — a beautiful feature nobody can rely on doesn't out-compete anything. Everything below is
+what makes CandleKit worth choosing over the alternatives once it's there, and it assumes 1.0 is
+done. Don't let any of this pull focus from Phase 0–3 while the project hasn't even built yet.
+
+### The actual competition, and where the real edge is
+
+Two products a developer evaluating CandleKit would also look at, and what's actually true of them
+(checked, not assumed — TradingView's own docs and SciChart's own pricing pages, current as of this
+writing):
+
+- **TradingView Advanced Charts** is free to use, but it's a **client-side JavaScript library**,
+  full stop. On iOS that means a `WKWebView`: no true native gestures or haptics without a JS
+  bridge, WebView startup latency, VoiceOver support that's a second-class citizen behind a browser
+  engine, higher memory overhead per instance, and it structurally **cannot run** in a widget, a
+  Live Activity, on watchOS, or in most of visionOS — those environments don't host a full web
+  runtime. Free use also requires the implementation to be public and TradingView-attributed;
+  private or paywalled use needs a separate, negotiated agreement. You also host the library
+  yourself and wire up your own datafeed — "free" doesn't mean "zero integration work."
+- **SciChart iOS** is genuinely native (Metal-backed, serious performance engineering) and a fair
+  fight on raw capability. It's also a real ongoing cost: SciChart's own pricing page quotes
+  iOS/Android licensing on a **per-developer, per-year** basis (their public historical pricing put
+  a single iOS+Android license in the several-hundred-to-low-thousands-of-dollars range annually,
+  with enterprise-scale deployments needing a separate "Advanced" tier), and the unlicensed trial
+  build **displays a "Powered by SciChart" watermark**.
+- **CandleKit's edge isn't "more indicators than SciChart"** — that's a feature race a two-person
+  open-source project won't win outright, and doesn't need to. The edge is being **fully native
+  SwiftUI *and* interoperable with UIKit, MIT-licensed with no royalty or attribution obligation,
+  and able to reach every Apple surface a WebView-based competitor cannot reach at all.** Most of
+  Phase 8 below is specifically the list of things that are true *because* of that, not things
+  every charting library eventually gets around to.
+
+### What CandleKit deliberately will not become
+
+Saying no to some of this matters as much as building the rest. Feature creep is exactly how a
+focused, fast, well-tested candlestick chart turns into an unmaintainable everything-library that
+nobody can be confident works.
+
+- **No order book / depth chart / footprint chart.** Real, but a genuinely different rendering and
+  data-modeling problem from OHLCV candles. If this gets built at all, it should be a companion
+  package that depends on `CandleKitCore`, not a module inside CandleKit itself.
+- **No bundled data feeds, brokers, or backend.** CandleKit draws candles it's given. The Demo's
+  Coinbase integration is a *demonstration* of how to feed it, not a feature of the library, and
+  should never become one — the moment CandleKit ships an opinion about where data comes from, it
+  stops being a drop-in chart for an app with its own backend.
+- **No built-in alerting system, notification scheduling, or backend-synced watchlists.** 9.3 below
+  gives apps the *primitive* (a price crossed a level) and stops there. Firing a notification,
+  persisting a list of alerts, and syncing them are all app concerns.
+- **Server-driven / remote-config styling.** A plausible enterprise ask, but out of scope for an
+  open-source chart library's core; a fine candidate for a community package layered on top of the
+  existing `CandleChartStyle`.
+
+### Phase 8: Signature features — what a WebView chart can't do
+
+This is the phase that actually answers "why CandleKit over TradingView." Each of these is either
+impossible or seriously degraded in a `WKWebView`-hosted chart, and cheap for a SwiftUI-native chart
+because the platform already does most of the work.
+
+- [ ] **8.1 Home screen widget.** (design first) A small `WidgetKit` target rendering a
+      `CandlestickChart` (or a purpose-built lightweight variant — a widget's render budget is not
+      the same as a full-screen chart's) at small/medium/large sizes. The host app supplies the
+      candle data via `TimelineProvider`; CandleKit's job is making the chart itself render cleanly
+      at widget scale (no crosshair, no gestures, careful with the medium-size aspect ratio).
+- [ ] **8.2 Live Activity / Dynamic Island.** A ticking price plus a tiny sparkline for a watched
+      symbol during market hours, or for the duration of a simulated "open position." Needs a
+      genuinely minimal rendering path — a Live Activity's update budget and process lifetime are
+      far more constrained than an app's — so this likely wants its own tiny sparkline renderer in
+      Core rather than reusing the full `CandlestickChart`.
+- [ ] **8.3 watchOS companion view.** A compact price chart and a complication showing the latest
+      close. `CandleKitCore` already has zero UIKit/SwiftUI-desktop dependencies, so the data and
+      scale math needs no changes — this is really "does a slimmed-down rendering layer exist for
+      watchOS," which is closer to 8.2's sparkline renderer than to the full iOS chart.
+- [ ] **8.4 App Intents / Siri / Spotlight.** Expose an `AppIntent` a host app can adopt for
+      "show me \<symbol\>'s chart," so it's reachable from Siri, Shortcuts, and Spotlight. This is
+      mostly a documented integration pattern for host apps rather than new CandleKit surface —
+      write the guide, provide a starter `AppIntent` conformance as sample code in the Demo.
+- [ ] **8.5 Share chart as image.** Render the current visible chart (with a small CandleKit or
+      app-supplied watermark) as a `UIImage`/`ImageRenderer` output for sharing to Messages or
+      saving to Photos — the feature that makes Robinhood/Coinbase/Webull screenshots spread on
+      social media. SwiftUI's `ImageRenderer` makes this close to free for a native view; it's not
+      available to a WebView chart without a manual screenshot dance.
+- [ ] **8.6 visionOS depth.** (design first, extends Phase 11.3) Beyond "does it render on glass":
+      does a floating chart benefit from real depth — candles with subtle z-extrusion, or multiple
+      symbols arranged in space for comparison? Needs hands-on time with a device or simulator
+      before committing to anything beyond a flat chart in a window.
+
+Ship each as a **separate SPM product** (`CandleKitWidgets`, `CandleKitWatch`, …) that depends on
+`CandleKitCore` and, where relevant, `CandleKit`, rather than folding widget/watch code into the
+main `CandleKit` target behind more `#if os(...)` branches. An app that only wants the iOS chart
+shouldn't compile watchOS rendering code it never links against, and a widget extension has a much
+tighter binary-size budget than a full app target.
+
+### Phase 9: Rounding out feature parity
+
+Real gaps against professional charting tools that aren't already covered by Phases 4–7. Unlike
+Phase 8, none of these need a platform a WebView can't reach — they're just missing today.
+
+- [ ] **9.1 Extended-hours / session shading.** Tint the plot background for pre-market and
+      after-hours ranges (a very common ask for US equities apps). Needs a way to describe a
+      symbol's trading sessions — probably a simple `TradingSession` value the app supplies, since
+      CandleKit has no concept of "what market is this" — and a background-fill pass in the
+      renderer keyed off it.
+- [ ] **9.2 Event markers.** Small tappable annotations on the time axis for earnings, dividends,
+      or news — an app-supplied array of `(Date, label, kind)`, rendered as a marker glyph with a
+      popover or callback on tap. Straightforward once indicator panes (5.3) establish a pattern
+      for a second, app-driven data layer over the price series.
+- [ ] **9.3 Price-crossing primitive.** Not an alerting system (see "What CandleKit will not
+      become") — just `CandleChartState` (or a small standalone type in Core) exposing "the price
+      crossed level X between the last two candles," so an app can wire its own notification to it.
+      Small, testable, and the thing every "build price alerts" tutorial ends up hand-rolling badly.
+- [ ] **9.4 Replay mode.** Step or auto-play through a loaded series candle-by-candle at an
+      adjustable speed — genuinely popular for backtesting and teaching technical analysis, and
+      cheap to build: it's a `Viewport` that advances on a timer rather than a finger, reusing the
+      exact eased-scroll machinery 4.1 and the spring animations already build. `CandleChartState`
+      gains a `play(candlesPerSecond:)` / `pause()` pair; the renderer doesn't change at all.
+
+### Phase 10: Developer experience and ecosystem
+
+The competitive lever proprietary SDKs consistently under-invest in. A developer chooses a library
+partly on "how fast can I get this working and keep it working," not only on feature count.
+
+- [ ] **10.1 Testing support module.** A small `CandleKitTestSupport` product bundling
+      `CandleSampleData` (already exists, just needs its own product target) plus SwiftUI preview
+      helpers and a couple of `swift-testing` snapshot-style assertions, so an app team adopting
+      CandleKit can write tests for *their* integration on day one instead of inventing fixtures.
+- [ ] **10.2 Asset-class-aware formatting.** `PriceScale.suggestedFractionDigits` already adapts to
+      magnitude; extend it to an explicit `AssetKind` (equity, forex, crypto) an app can set, since
+      "8 decimal places for a satoshi-denominated price" and "pip-based forex formatting" are real,
+      distinct conventions that magnitude alone doesn't fully capture.
+- [ ] **10.3 Localization pass.** Audit every user-facing string (accessibility labels, the "Vol"
+      label in `ChartHeader`, VoiceOver summaries) into a String Catalog, and confirm the layout
+      holds up under RTL locales — a real requirement for any finance app with an Arabic or Hebrew
+      market, and one a from-scratch charting implementation frequently gets wrong on day one.
+
+---
+
+## Phase 11: More platforms
+
+- [ ] **11.1 Mac Catalyst check:** does the iOS build work as-is?
+- [ ] **11.2 Native macOS 14:** `NSViewRepresentable` gesture host, scroll wheel and trackpad magnify, crosshair on hover.
+- [ ] **11.3 visionOS:** input model, and how the chart looks on glass.
+- [ ] **11.4 Metal renderer**, behind the existing renderer seam, only if performance baselines require it.
 
 ---
 
@@ -243,19 +539,26 @@ Each feature ships with a demo example, docs, a CHANGELOG entry and tests where 
 | KI-10 | Several framework API signatures were written without a compiler. See the 0.2 list. | 0.2, 0.3 |
 | KI-11 | Vertical drags on the plot do nothing. This is intentional, for ScrollView embedding, but there is no vertical price scaling yet. | 4.3 |
 | KI-12 | Two independent, hand-written critically-damped spring integrators exist: `CandleChartState`'s (reset zoom / scroll-to-latest, stiffness 180 / damping 27) and `ChartGestureCoordinator`'s (rubber-band release and the momentum edge-bounce, stiffness 300 / damping 35). The different constants may be intentional — a snap-back arguably should feel snappier than a deliberate reset — but the duplicated integrator code risks drifting inconsistently if one is retuned without the other. | Extract a shared spring-integrator type into Core (Double-only, testable) when 4.1 (eased autoscale) is tackled, since that needs the same kind of easing. |
-| KI-13 | `CandleChartState` retains its own full copy of the candle array between renders, purely for `count` bookkeeping and crosshair random access. An app that mutates the last candle in place for a hot live-tick path (the pattern this README itself recommends) will force at least one full-array copy-on-write per tick, because CandleKit's retained reference and the app's own array reference are no longer uniquely held at the moment of mutation. Negligible for series in the hundreds to low thousands of candles (the demo's scale); worth revisiting for very large series (tens of thousands of candles) updated many times per second — the CPU cost of the copy itself is small, but the repeated allocation of a large buffer many times per second could contribute to hitches on constrained devices. | Investigate as part of 5.4, if the 1.5 performance baseline shows it matters. Likely fix: stop invoking the crosshair-change callback from inside `CandleChartState` (which needs the full array) and instead fire it reactively from `CrosshairLayer`, which already receives `frame.candles` per render — then `CandleChartState` itself would only need to retain a candle *count*. |
+| KI-13 | `CandleChartState` retains its own full copy of the candle array between renders, purely for `count` bookkeeping and crosshair random access. An app that mutates the last candle in place for a hot live-tick path (the pattern this README itself recommends) will force at least one full-array copy-on-write per tick, because CandleKit's retained reference and the app's own array reference are no longer uniquely held at the moment of mutation. Negligible for series in the hundreds to low thousands of candles (the demo's scale); worth revisiting for very large series (tens of thousands of candles) updated many times per second — the CPU cost of the copy itself is small, but the repeated allocation of a large buffer many times per second could contribute to hitches on constrained devices. | Investigate as part of 5.8, if the 1.5 performance baseline shows it matters. Likely fix: stop invoking the crosshair-change callback from inside `CandleChartState` (which needs the full array) and instead fire it reactively from `CrosshairLayer`, which already receives `frame.candles` per render — then `CandleChartState` itself would only need to retain a candle *count*. |
 | KI-14 | On first load, `MarketView`'s outer 0.15s opacity crossfade (skeleton → chart) and `CandlestickChart`'s own ~0.5s per-candle reveal sweep run concurrently but aren't coordinated: the container is fully opaque well before the candles finish sweeping in. Not wrong, just slightly uncoordinated. | Opportunistic — either have the outer transition wait for `appearPhase` to settle, or drop one of the two animations. |
 | KI-15 | `DisplayLinkProxy` (added in the Unreleased changes — see CHANGELOG) and its call sites haven't been checked against Swift 6's strict concurrency checker. The pattern mirrors `PerformanceView.DisplayLinkTarget` in the demo, but the generic, cross-type closures in `CandleChartState`/`ChartGestureCoordinator` may need explicit isolation annotations that can't be confirmed without compiling. | 0.2 (fold into the general "make the UI layer compile" pass) |
 
 ## Open questions for the maintainer
 
-1. **Platform priority:** does macOS or visionOS matter before indicator panes and drawing tools, or can Phase 7 stay last?
+1. **Platform priority:** does macOS or visionOS matter before indicator panes and drawing tools, or can Phase 11 stay last?
 2. **Test dependency:** is swift-snapshot-testing acceptable as a test-only dependency (2.3)?
 3. **Versioning:** strict SemVer from 0.1.0, or allow breaking changes in 0.x minor releases with CHANGELOG notes?
 4. **Demo scope:** should the demo stay a showcase, or also serve as a manual test bench (debug overlays, redraw counters)?
 5. **Naming:** keep `CandleKit`, pending the 3.4 check?
+6. **Phase 8 sequencing:** widgets/watch/Live Activities (8.1–8.3) are the strongest "native beats WebView" argument but also the most work for the least certain payoff — is there a specific app (yours, or an early adopter's) that would actually ship one of these, or is this speculative until there's a concrete use case pulling it?
+7. **Multi-package split:** Phase 8 recommends separate SPM products per platform surface (`CandleKitWidgets`, `CandleKitWatch`). Worth deciding the package layout convention before the first one ships, rather than after.
+8. **7.6's design boundary:** should multi-symbol comparison be a mode of `CandlestickChart`, or a second public view type? Whichever way this goes shapes the public API, so it's worth deciding before 7.6 starts rather than during it.
+9. **Does CandleKit ship UI?** 7.1 recommends a separate `CandleKitUI` product for indicator pickers, a drawing toolbar and a settings sheet, keeping the core headless. The alternative — no built-in UI at all — is less work but makes CandleKit feel less complete next to a commercial SDK. Which way?
+10. **Persistence:** 7.4 argues for `Codable` in the core with SwiftData as an optional companion, rather than Core Data or SwiftData in the library itself. Worth confirming you agree before anything gets built against it.
+11. **Indicator conventions:** when a Tier 1 indicator has more than one common definition (RSI smoothing, ATR smoothing, MACD signal seeding), is matching TradingView's numbers the priority, or matching the textbook definition? These occasionally differ, and users will compare against TradingView.
 
 ## Decision log
 
 - **2026-09:** Canvas renderer over Swift Charts, index-based x-axis, UIKit gesture recognizers via `UIViewRepresentable` (iOS 17 minimum), Core and UI split into two targets. See CLAUDE.md for the reasoning.
 - **2026-09:** Demo moved into this repository under `Demo/`, generated with XcodeGen. The `.xcodeproj` is not committed.
+- **2026-09:** Competitive positioning against TradingView Advanced Charts (free, but JavaScript/WebView-hosted on iOS, public-implementation licensing terms) and SciChart iOS (native, but paid per-developer-per-year with a watermarked trial). CandleKit's differentiation strategy is *not* out-featuring either on raw indicator/drawing-tool count — it's being free, MIT-licensed, SwiftUI-native, and able to reach widgets, Live Activities, watchOS and App Intents, none of which a WebView-based chart can do at all. Order books, bundled data feeds, and a built-in alerting system are explicitly out of scope for the core library — see "What CandleKit deliberately will not become."

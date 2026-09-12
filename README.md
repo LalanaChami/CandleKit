@@ -150,7 +150,7 @@ This runs the engine tests on macOS or Linux. To build the SwiftUI layer, open `
 
 ## Roadmap
 
-Planned next: separate indicator panes (RSI, MACD), drawing tools anchored to time and price, eased autoscaling, macOS and visionOS input, DocC documentation, and snapshot tests for the renderers. If one of these matters to you, open an issue so it can be prioritized.
+Planned next: separate indicator panes (RSI, MACD), drawing tools anchored to time and price, eased autoscaling, macOS and visionOS input, DocC documentation, and snapshot tests for the renderers. Further out: a home screen widget, a Live Activity, a watchOS companion, and other things a WebView-based chart can't do. Full detail, including what's deliberately out of scope, is in [`docs/ROADMAP.md`](docs/ROADMAP.md). If one of these matters to you, open an issue so it can be prioritized.
 
 ## Contributing
 

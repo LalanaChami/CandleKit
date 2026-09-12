@@ -6,6 +6,73 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added — indicators, drawing tools, configuration and persistence roadmap
+
+Phases 5–7 substantially expanded and restructured around what developers adopting a charting
+library actually need.
+
+- **Phase 5 (indicators)** now leads with architecture, not catalog. `IndicatorKind`'s current
+  `[Double?]`-per-candle output can't express Bollinger Bands, MACD's histogram, Ichimoku's cloud or
+  Parabolic SAR's dots, so a protocol and a richer output model (multi-line, band fill, histogram,
+  point markers, reference levels) must land before any new indicator, or each one becomes migration
+  debt. Catalog split into Tier 1 (the twelve that actually get used) and Tier 2 (the long tail,
+  mostly good community-contribution material). Custom indicators folded into the architecture work
+  rather than bolted on afterwards.
+- **Indicator conventions called out explicitly.** RSI smoothing, ATR smoothing, MACD signal seeding
+  and Stochastic %D all differ between platforms. Every indicator must document which convention it
+  implements and test against cited reference values — a chart that disagrees with TradingView's
+  numbers gets reported as a bug.
+- **Phase 6 (drawing tools)** restructured the same way: interaction model, `(Date, price)` anchoring,
+  hit testing, undo, and magnet/snapping first; then Tier 1 (horizontal line, ray, trend line,
+  rectangle, Fibonacci retracement, text, measure) and Tier 2.
+- **New Phase 7 — configuration, persistence and comparison**, promoted ahead of platform expansion:
+  - `ChartConfiguration` making every capability individually switchable, replacing the ad-hoc
+    `volumeVisible` / `headerVisible` modifiers before the surface grows further.
+  - An open question on whether CandleKit ships default UI (indicator picker, drawing toolbar) — the
+    recommendation is a separate `CandleKitUI` product so the core stays headless.
+  - `ChartLayout: Codable`, versioned with a migration path from day one.
+  - **Persistence recommendation: keep Core Data and SwiftData out of the core library.** Ship
+    `Codable` as the contract with an optional `CandleKitPersistence` companion providing SwiftData
+    wrappers. Reasoning is written out in 7.4 — adopting apps already have a persistence stack, a
+    library-owned schema creates migration coupling, and a `Codable` value can be stored anywhere
+    while a SwiftData model cannot.
+  - Multi-symbol comparison (moved from 9.2), expanded with normalization modes and the genuinely
+    hard part: aligning series with different trading calendars under an index-based x-axis.
+- **Scope note added to the preamble.** Phases 5–7 are more work than Phases 0–4 combined. The plan
+  states plainly that the extensibility API matters more than catalog size, and that Tier 1 finished
+  properly beats both tiers half-finished.
+- Old Phase 7 (More platforms) renumbered to Phase 11; all cross-references updated.
+- Four new open questions: whether CandleKit ships UI, confirmation of the persistence stance, the
+  comparison-view API boundary, and whether matching TradingView's numbers or textbook definitions
+  wins when indicator conventions conflict.
+
+### Added — competitive roadmap
+
+`docs/ROADMAP.md` gains three new phases (8, 9, 10) plus a positioning section, laying out what
+would make CandleKit a better choice than TradingView's Advanced Charts or SciChart iOS rather than
+just a free imitation of either:
+
+- **Phase 8 — signature features:** things a `WKWebView`-hosted chart structurally cannot do on
+  Apple platforms — a home screen widget, a Live Activity, a watchOS companion, App Intents/Siri
+  integration, chart-as-image sharing, and deeper visionOS use of depth.
+- **Phase 9 — feature-parity rounding:** real gaps against professional charting tools that Phases
+  4–6 don't already cover — extended-hours shading, multi-symbol comparison overlays, event
+  markers, a price-crossing primitive for alerts, and a replay/bar-by-bar playback mode.
+- **Phase 10 — developer experience:** `Codable` chart-layout persistence, a testing-support
+  module, asset-class-aware number formatting, and a localization/RTL pass — the axis proprietary
+  SDKs consistently under-invest in.
+- An explicit **"What CandleKit deliberately will not become"** list — order books, bundled data
+  feeds/brokers, a built-in alerting backend, and remote-config styling are called out as
+  out-of-scope for the core library, with a suggested path (companion packages) for whichever of
+  them someone eventually wants.
+- The competitive claims are grounded in each competitor's own current pricing/licensing pages
+  rather than assumed, and cited in the roadmap.
+
+All of this is explicitly sequenced *after* the 1.0 criteria, not folded into getting there —
+nothing here should pull focus while the project hasn't built yet (Phase 0).
+
+## Earlier unreleased work
+
 ### Fixed — CI build failure
 
 `animatedResetZoom()` and `animatedScrollToLatest()` were declared with no access modifier
