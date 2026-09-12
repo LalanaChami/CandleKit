@@ -6,6 +6,69 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added — indicator engine (Phase 5.1, 5.2, most of Tier 1)
+
+The foundation the indicator picker, saved layouts and indicator panes all depend on. All pure
+Foundation in `CandleKitCore`, so **this is the first work in a while you can actually verify
+yourself: run `swift test`.**
+
+- **`Indicator` protocol and output model** (`IndicatorOutput.swift`, `Indicator.swift`). The old
+  `IndicatorKind.values(for:) -> [Double?]` returned one number per candle, which cannot express
+  Bollinger's three lines and a fill, MACD's histogram, RSI's pinned 0–100 pane with reference
+  levels, or SAR's discrete dots. The new model covers plots (line, stepped, histogram, points,
+  hidden), fills between plots, reference levels, a preferred scale range, and pane placement.
+  Colours are expressed as roles rather than `Color` values, so Core stays UI-framework-free and
+  Linux-testable.
+- **Typed parameters** (`IndicatorParameter.swift`) — the piece that makes a *generic* picker
+  possible. An indicator declares its inputs with kinds and valid ranges, so the settings form can
+  be generated for any indicator, including one an app defines itself, with no bespoke UI. Values
+  clamp on assignment, so a picker binding can't put an indicator into a divide-by-zero state.
+- **`IndicatorCatalog`** — immutable and `Sendable` (no global mutable registry, so no locking and
+  no Swift 6 concurrency problem). Apps extend it with `adding(_:)`, and two charts in one app can
+  offer different sets. Provides category grouping and search for the picker.
+- **`IndicatorDescriptor`** — the `Codable` `identifier + [key: value]` pair a saved layout stores.
+  Unknown parameter keys are ignored and out-of-range values clamped on load, so a layout written
+  by a newer build, or a hand-edited one, degrades gracefully instead of failing.
+- **`IndicatorMath`** with SMA, EMA, WMA, Wilder smoothing, rolling population standard deviation,
+  RSI, MACD, Stochastic, true range, ATR, Bollinger Bands, OBV and session-anchored VWAP. Every
+  function documents which convention it implements, and where two are common the choice is a
+  parameter rather than a silent decision.
+- **Tier 1 indicators** as `Indicator` conformances: `MovingAverageIndicator` (SMA/EMA/WMA),
+  `BollingerBandsIndicator`, `VWAPIndicator`, `RSIIndicator`, `MACDIndicator`,
+  `StochasticIndicator`, `ATRIndicator`, `OBVIndicator`.
+- **Tests** covering the maths, the parameter clamping, catalog round-tripping through `Codable`,
+  the app-defined-indicator extension point, and degenerate inputs (empty series, single candle,
+  mismatched array lengths, zero periods).
+
+### Verification, and one thing that isn't verified
+
+The O(n) WMA recurrence was checked against a direct computation of the definition over 200 random
+inputs before being written, and the same check ships as a test. The expected values in
+`IndicatorMathTests.swift` come from an independent reference implementation written separately
+from the Swift, so the two agreeing is genuine evidence rather than the Swift agreeing with itself.
+
+**What is not established: that these numbers match what a user sees on TradingView.** Validating
+RSI against a widely reproduced published worked example came out consistently ~0.07 off, and
+neither an alternative seeding convention nor intermediate rounding explained the gap. The most
+likely explanation is that the recalled table was inaccurate, but that cannot be confirmed without
+the primary source. Rather than bake in numbers of uncertain provenance, the tests verify internal
+consistency and the documented formulas, and roadmap task **5.9** now tracks validating against an
+authoritative source as required work — not optional polish.
+
+### Changed
+
+- Nothing was removed. `IndicatorKind` and the existing rendering path still work exactly as before;
+  the new engine was added alongside it. Reconciling the two is roadmap task **5.10**, and has to
+  happen before panes or the picker can ship.
+
+### Decided
+
+- **CandleKit will ship the indicator picker and drawing toolbar**, in a separate `CandleKitUI`
+  product so the core stays headless. Recorded in the roadmap's decision log; open question 9 is
+  closed.
+
+## Earlier unreleased work
+
 ### Added — indicators, drawing tools, configuration and persistence roadmap
 
 Phases 5–7 substantially expanded and restructured around what developers adopting a charting

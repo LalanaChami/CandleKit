@@ -203,7 +203,7 @@ rewriting each one later or bolting on special cases per indicator. Do 5.1 and 5
 
 ### Architecture
 
-- [ ] **5.1 Indicator protocol and output model.** (design first) Replace the closed enum with a
+- [x] **5.1 Indicator protocol and output model.** *(landed — `Sources/CandleKitCore/Indicators/`. Untested on a compiler; run `swift test` first.)* Replace the closed enum with a
       protocol apps can also conform to (this supersedes the old "custom indicators" item — it's
       the same work, and doing it first costs nothing extra while doing it later costs a migration).
       The output model needs to cover, at minimum:
@@ -237,9 +237,13 @@ use a handful of indicators, and shipping those twelve extremely well — correc
 documented — beats shipping forty of uncertain quality. Tier 2 exists so the long tail has a home,
 and most of it is good "good first issue" community-contribution material once 5.1 lands.
 
-- [ ] **5.4 Tier 1 — overlays:** SMA and EMA (exist), WMA, Bollinger Bands, VWAP (with a
-      session-anchored variant), and a simple session/period high-low band.
-- [ ] **5.5 Tier 1 — oscillators:** RSI, MACD, Stochastic, ATR, OBV.
+- [~] **5.4 Tier 1 — overlays:** SMA, EMA, WMA (as one configurable `MovingAverageIndicator`),
+      Bollinger Bands, and session-anchored VWAP have landed. Still to do: a session/period
+      high-low band.
+- [x] **5.5 Tier 1 — oscillators:** RSI, MACD, Stochastic, ATR, OBV have landed as `Indicator`
+      conformances over `IndicatorMath`. **Caveat:** see the note in `IndicatorMathTests.swift` —
+      the expectations are cross-checks against an independent implementation, *not* transcriptions
+      from a published table. Validating against an authoritative source is 5.9 below.
 - [ ] **5.6 Tier 2 — overlays:** Ichimoku Cloud, SuperTrend, Parabolic SAR, Keltner Channels,
       Donchian Channels, Pivot Points (classic/Fibonacci/Camarilla).
 - [ ] **5.7 Tier 2 — oscillators:** ADX/DMI, CCI, MFI, Williams %R, ROC/Momentum, Chaikin Money
@@ -259,6 +263,20 @@ where a second convention is common, expose it as a parameter.
 - [ ] **5.8 Incremental indicator updates.** (was 5.4) Only if the 1.5 baseline shows recomputation
       on data change is a measurable cost with live data. Otherwise mark as dropped, citing the
       numbers.
+- [ ] **5.9 Validate indicator values against an authoritative source.** Every Tier 1 indicator's
+      numbers checked against a primary reference — Wilder's *New Concepts in Technical Trading
+      Systems* for RSI/ATR, or a live TradingView chart on the same data — and the convention
+      confirmed in each doc comment. **This is not optional polish.** An attempt to validate RSI
+      against a widely reproduced worked example during 5.5 came out consistently ~0.07 off, and no
+      seeding or rounding variant explained the gap; the recalled table was most likely wrong, but
+      that couldn't be established without the primary source. Until this task is done, CandleKit's
+      indicator values are internally consistent and match the documented formulas, but are *not*
+      confirmed to match what a user sees on another platform.
+- [ ] **5.10 Migrate the rendering layer onto the new model.** `IndicatorKind`, `ChartIndicator`,
+      `IndicatorCache`, `ChartFrame.indicatorSeries` and `BaseLayerRenderer.drawIndicators` still
+      use the old one-line-per-indicator path. The new types were added alongside rather than
+      replacing it, so nothing broke — but the two must be reconciled before panes (5.3) or the
+      picker can ship. Deprecate `IndicatorKind` with a shim rather than deleting it outright.
 
 ---
 
@@ -553,12 +571,12 @@ partly on "how fast can I get this working and keep it working," not only on fea
 6. **Phase 8 sequencing:** widgets/watch/Live Activities (8.1–8.3) are the strongest "native beats WebView" argument but also the most work for the least certain payoff — is there a specific app (yours, or an early adopter's) that would actually ship one of these, or is this speculative until there's a concrete use case pulling it?
 7. **Multi-package split:** Phase 8 recommends separate SPM products per platform surface (`CandleKitWidgets`, `CandleKitWatch`). Worth deciding the package layout convention before the first one ships, rather than after.
 8. **7.6's design boundary:** should multi-symbol comparison be a mode of `CandlestickChart`, or a second public view type? Whichever way this goes shapes the public API, so it's worth deciding before 7.6 starts rather than during it.
-9. **Does CandleKit ship UI?** 7.1 recommends a separate `CandleKitUI` product for indicator pickers, a drawing toolbar and a settings sheet, keeping the core headless. The alternative — no built-in UI at all — is less work but makes CandleKit feel less complete next to a commercial SDK. Which way?
-10. **Persistence:** 7.4 argues for `Codable` in the core with SwiftData as an optional companion, rather than Core Data or SwiftData in the library itself. Worth confirming you agree before anything gets built against it.
-11. **Indicator conventions:** when a Tier 1 indicator has more than one common definition (RSI smoothing, ATR smoothing, MACD signal seeding), is matching TradingView's numbers the priority, or matching the textbook definition? These occasionally differ, and users will compare against TradingView.
+9. **Persistence:** 7.4 argues for `Codable` in the core with SwiftData as an optional companion, rather than Core Data or SwiftData in the library itself. Worth confirming you agree before anything gets built against it.
+10. **Indicator conventions:** when a Tier 1 indicator has more than one common definition (RSI smoothing, ATR smoothing, MACD signal seeding), is matching TradingView's numbers the priority, or matching the textbook definition? These occasionally differ, and users will compare against TradingView.
 
 ## Decision log
 
 - **2026-09:** Canvas renderer over Swift Charts, index-based x-axis, UIKit gesture recognizers via `UIViewRepresentable` (iOS 17 minimum), Core and UI split into two targets. See CLAUDE.md for the reasoning.
 - **2026-09:** Demo moved into this repository under `Demo/`, generated with XcodeGen. The `.xcodeproj` is not committed.
+- **2026-09:** **CandleKit ships the indicator picker and drawing toolbar** (decided by the maintainer). They live in a separate `CandleKitUI` product so the core stays headless and an app with its own design system isn't forced to adopt them, but they are a supported, shipped part of the library rather than sample code. This is what makes the parameter model in `IndicatorParameter` load-bearing: the picker generates a settings form for any indicator, including app-defined ones, from its declared parameters.
 - **2026-09:** Competitive positioning against TradingView Advanced Charts (free, but JavaScript/WebView-hosted on iOS, public-implementation licensing terms) and SciChart iOS (native, but paid per-developer-per-year with a watermarked trial). CandleKit's differentiation strategy is *not* out-featuring either on raw indicator/drawing-tool count — it's being free, MIT-licensed, SwiftUI-native, and able to reach widgets, Live Activities, watchOS and App Intents, none of which a WebView-based chart can do at all. Order books, bundled data feeds, and a built-in alerting system are explicitly out of scope for the core library — see "What CandleKit deliberately will not become."
