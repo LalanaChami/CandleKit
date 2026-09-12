@@ -12,6 +12,8 @@ struct MarketView: View {
 
     @State private var showsSMA = true
     @State private var showsEMA = true
+    @State private var showsBollinger = false
+    @State private var showsVWAP = false
     @State private var showsVolume = true
 
     var body: some View {
@@ -118,6 +120,8 @@ struct MarketView: View {
             Section("Overlays") {
                 Toggle("SMA 20", isOn: $showsSMA)
                 Toggle("EMA 50", isOn: $showsEMA)
+                Toggle("Bollinger Bands", isOn: $showsBollinger)
+                Toggle("VWAP", isOn: $showsVWAP)
                 Toggle("Volume", isOn: $showsVolume)
             }
             Button("Reset zoom", systemImage: "arrow.counterclockwise") {
@@ -134,6 +138,9 @@ struct MarketView: View {
         var result: [ChartIndicator] = []
         if showsSMA { result.append(.sma(20)) }
         if showsEMA { result.append(.ema(50, color: .blue)) }
+        // Exercises the multi-plot and fill paths, which a plain moving average never touches.
+        if showsBollinger { result.append(.bollingerBands()) }
+        if showsVWAP { result.append(.vwap()) }
         return result
     }
 }

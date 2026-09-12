@@ -221,7 +221,8 @@ rewriting each one later or bolting on special cases per indicator. Do 5.1 and 5
       only. Band fills, histograms, point markers and stepped lines are new draw paths; each is
       batched like the candles are (one path per colour, never per data point) and each needs a
       pixel-snapping story so it stays crisp.
-- [ ] **5.3 Indicator panes.** (design first — was 5.3, unchanged in substance) An API like
+- [ ] **5.3 Indicator panes.** **(next up — 5.10 landed the drawing primitives, and the separate-pane
+      indicators are computed but currently invisible until this ships.)** (design first) An API like
       `.indicator(.rsi(14), pane: .below(height: 90))`:
       - Panes share the horizontal viewport.
       - The crosshair spans all panes, and the header reads out every pane's value at that candle.
@@ -272,11 +273,16 @@ where a second convention is common, expose it as a parameter.
       that couldn't be established without the primary source. Until this task is done, CandleKit's
       indicator values are internally consistent and match the documented formulas, but are *not*
       confirmed to match what a user sees on another platform.
-- [ ] **5.10 Migrate the rendering layer onto the new model.** `IndicatorKind`, `ChartIndicator`,
-      `IndicatorCache`, `ChartFrame.indicatorSeries` and `BaseLayerRenderer.drawIndicators` still
-      use the old one-line-per-indicator path. The new types were added alongside rather than
-      replacing it, so nothing broke — but the two must be reconciled before panes (5.3) or the
-      picker can ship. Deprecate `IndicatorKind` with a shim rather than deleting it outright.
+- [x] **5.10 Migrate the rendering layer onto the new model.** *(landed — needs an iOS build and a
+      device check.)* `ChartIndicator` now wraps any `Indicator`; `IndicatorCache` is keyed by
+      descriptor so re-parameterising one indicator doesn't invalidate the rest; `ChartFrame`
+      carries colour-resolved results; the renderer draws lines, stepped lines, histograms, points,
+      fills and reference levels. `IndicatorKind` and `MovingAverage` are deprecated shims
+      delegating to `IndicatorMath`, so existing call sites still compile.
+      **Known gap:** indicators that request `.separate` panes (RSI, MACD, Stochastic, ATR, OBV) are
+      computed but not drawn — the renderer skips anything not on the price pane, because drawing
+      0–100 RSI values against a price scale would be worse than drawing nothing. 5.3 closes this,
+      and should be the next task.
 
 ---
 

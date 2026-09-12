@@ -266,27 +266,205 @@ struct BaseLayerRenderer {
         }
     }
 
+    /// Draws every price-pane indicator: fills first so lines sit on top, then reference levels,
+    /// then the plots themselves.
+    ///
+    /// Indicators that ask for their own pane are skipped here — panes are roadmap task 5.3, and
+    /// drawing an RSI's 0–100 values against a price scale would be worse than not drawing it.
     private func drawIndicators(in context: inout GraphicsContext) {
-        for (indicator, values) in zip(frame.indicators, frame.indicatorSeries) {
-            var path = Path()
-            var penDown = false
-            for index in frame.lineRange {
-                guard index < values.count, let value = values[index] else {
-                    penDown = false
-                    continue
-                }
-                let point = CGPoint(x: frame.centerX(ofCandle: index), y: frame.y(forPrice: value))
-                if penDown {
-                    path.addLine(to: point)
-                } else {
-                    path.move(to: point)
-                    penDown = true
-                }
+        for indicator in frame.indicators where indicator.pane == .price {
+            drawFills(of: indicator, in: &context)
+            drawLevels(of: indicator, in: &context)
+            for plot in indicator.result.plots {
+                draw(plot, of: indicator, in: &context)
             }
+        }
+    }
+
+    private func draw(_ plot: IndicatorPlot, of indicator: ResolvedIndicator, in context: inout GraphicsContext) {
+        switch plot.style {
+        case let .line(_, dash):
+            let path = polyline(plot.values)
             context.stroke(
                 path,
-                with: .color(indicator.color),
-                style: StrokeStyle(lineWidth: indicator.lineWidth, lineCap: .round, lineJoin: .round)
+                with: .color(indicator.color(for: plot.colorRole)),
+                style: StrokeStyle(
+                    lineWidth: indicator.width(for: plot.style),
+                    lineCap: dash == nil ? .round : .butt,
+                    lineJoin: .round,
+                    dash: dash?.map { CGFloat($0) } ?? []
+                )
+            )
+
+        case .steppedLine:
+            context.stroke(
+                steppedPolyline(plot.values),
+                with: .color(indicator.color(for: plot.colorRole)),
+                style: StrokeStyle(lineWidth: indicator.width(for: plot.style), lineJoin: .miter)
+            )
+
+        case let .histogram(baseline):
+            drawHistogram(plot, baseline: baseline, of: indicator, in: &context)
+
+        case let .points(radius):
+            drawPoints(plot, radius: CGFloat(radius), of: indicator, in: &context)
+
+        case .hidden:
+            break
+        }
+    }
+
+    /// A polyline over `lineRange`, lifting the pen across `nil` gaps so a warm-up period or a
+    /// missing value leaves a break rather than a line to nowhere.
+    private func polyline(_ values: [Double?]) -> Path {
+        var path = Path()
+        var penDown = false
+        for index in frame.lineRange {
+            guard index < values.count, let value = values[index], value.isFinite else {
+                penDown = false
+                continue
+            }
+            let point = CGPoint(x: frame.centerX(ofCandle: index), y: frame.y(forPrice: value))
+            if penDown {
+                path.addLine(to: point)
+            } else {
+                path.move(to: point)
+                penDown = true
+            }
+        }
+        return path
+    }
+
+    /// Holds each value until the next one, for indicators like SuperTrend whose level is constant
+    /// between changes and should not be interpolated.
+    private func steppedPolyline(_ values: [Double?]) -> Path {
+        var path = Path()
+        var previous: CGPoint?
+        for index in frame.lineRange {
+            guard index < values.count, let value = values[index], value.isFinite else {
+                previous = nil
+                continue
+            }
+            let point = CGPoint(x: frame.centerX(ofCandle: index), y: frame.y(forPrice: value))
+            if let previous {
+                path.addLine(to: CGPoint(x: point.x, y: previous.y))
+                path.addLine(to: point)
+            } else {
+                path.move(to: point)
+            }
+            previous = point
+        }
+        return path
+    }
+
+    /// Batched into two paths — one per sign — so a long histogram stays a constant number of draw
+    /// calls, the same rule the candles follow.
+    private func drawHistogram(
+        _ plot: IndicatorPlot,
+        baseline: Double,
+        of indicator: ResolvedIndicator,
+        in context: inout GraphicsContext
+    ) {
+        let width = max(pixels.hairline, CGFloat(frame.viewport.spacing) * style.bodyWidthRatio)
+        let baselineY = frame.y(forPrice: baseline)
+        var positive = Path()
+        var negative = Path()
+
+        for index in frame.visible {
+            guard index < plot.values.count, let value = plot.values[index], value.isFinite else { continue }
+            let valueY = frame.y(forPrice: value)
+            let top = min(valueY, baselineY)
+            let height = max(abs(valueY - baselineY), pixels.hairline)
+            let rect = CGRect(x: frame.centerX(ofCandle: index) - width / 2, y: top, width: width, height: height)
+            if value >= baseline {
+                positive.addRect(rect)
+            } else {
+                negative.addRect(rect)
+            }
+        }
+
+        context.fill(positive, with: .color(indicator.color(for: plot.colorRole, value: 1)))
+        context.fill(negative, with: .color(indicator.color(for: plot.colorRole, value: -1)))
+    }
+
+    private func drawPoints(
+        _ plot: IndicatorPlot,
+        radius: CGFloat,
+        of indicator: ResolvedIndicator,
+        in context: inout GraphicsContext
+    ) {
+        var path = Path()
+        for index in frame.visible {
+            guard index < plot.values.count, let value = plot.values[index], value.isFinite else { continue }
+            let center = CGPoint(x: frame.centerX(ofCandle: index), y: frame.y(forPrice: value))
+            path.addEllipse(in: CGRect(
+                x: center.x - radius, y: center.y - radius,
+                width: radius * 2, height: radius * 2
+            ))
+        }
+        context.fill(path, with: .color(indicator.color(for: plot.colorRole)))
+    }
+
+    /// The shaded region between two plots — Bollinger's channel, Ichimoku's cloud.
+    ///
+    /// Built as a single closed path running forward along the upper edge and back along the lower,
+    /// restarted wherever either side has a gap so a warm-up period doesn't produce a fill anchored
+    /// to nothing.
+    private func drawFills(of indicator: ResolvedIndicator, in context: inout GraphicsContext) {
+        for fill in indicator.result.fills {
+            guard let lower = indicator.result.plot(fill.lowerPlotKey)?.values,
+                  let upper = indicator.result.plot(fill.upperPlotKey)?.values else { continue }
+
+            var path = Path()
+            var run: [(x: CGFloat, lower: CGFloat, upper: CGFloat)] = []
+
+            func flush() {
+                guard run.count > 1 else { run.removeAll(); return }
+                path.move(to: CGPoint(x: run[0].x, y: run[0].upper))
+                for point in run.dropFirst() {
+                    path.addLine(to: CGPoint(x: point.x, y: point.upper))
+                }
+                for point in run.reversed() {
+                    path.addLine(to: CGPoint(x: point.x, y: point.lower))
+                }
+                path.closeSubpath()
+                run.removeAll()
+            }
+
+            for index in frame.lineRange {
+                guard index < lower.count, index < upper.count,
+                      let low = lower[index], let high = upper[index],
+                      low.isFinite, high.isFinite else {
+                    flush()
+                    continue
+                }
+                run.append((
+                    x: frame.centerX(ofCandle: index),
+                    lower: frame.y(forPrice: low),
+                    upper: frame.y(forPrice: high)
+                ))
+            }
+            flush()
+
+            context.fill(
+                path,
+                with: .color(indicator.color(for: fill.colorRole).opacity(fill.opacity))
+            )
+        }
+    }
+
+    private func drawLevels(of indicator: ResolvedIndicator, in context: inout GraphicsContext) {
+        let plot = frame.layout.plot
+        for level in indicator.result.levels {
+            let y = pixels.hairlineCenter(frame.y(forPrice: level.value))
+            guard y >= plot.minY, y <= plot.maxY else { continue }
+            var path = Path()
+            path.move(to: CGPoint(x: plot.minX, y: y))
+            path.addLine(to: CGPoint(x: plot.maxX, y: y))
+            context.stroke(
+                path,
+                with: .color(indicator.color(for: level.colorRole)),
+                style: StrokeStyle(lineWidth: pixels.hairline, dash: level.dash?.map { CGFloat($0) } ?? [])
             )
         }
     }

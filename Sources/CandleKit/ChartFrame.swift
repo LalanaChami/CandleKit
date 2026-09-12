@@ -49,8 +49,9 @@ struct ChartFrame {
     let baseTimeUnit: TimeLabelUnit
     let interval: TimeInterval
     let volumeMax: Double
-    let indicators: [ChartIndicator]
-    let indicatorSeries: [[Double?]]
+    /// Indicators computed and colour-resolved for this frame. Only those on the price pane are
+    /// drawn today; separate panes arrive with roadmap task 5.3.
+    let indicators: [ResolvedIndicator]
     /// Pre-formatted axis labels, parallel to `priceTicks.values` and `timeTicks`.
     ///
     /// Formatting happens once per change in `CandleChartState.makeFrame`, not inside the Canvas

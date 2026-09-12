@@ -131,40 +131,88 @@ struct TimeScaleTests {
 @Suite("Indicators")
 struct IndicatorTests {
     @Test func simpleMovingAverage() {
-        #expect(MovingAverage.simple([2, 4, 6, 8, 20], period: 3) == [nil, nil, 4, 6, 34.0 / 3.0])
+        #expect(IndicatorMath.sma([2, 4, 6, 8, 20], period: 3) == [nil, nil, 4, 6, 34.0 / 3.0])
     }
 
     @Test func exponentialMovingAverageIsSeededWithSMA() {
         // alpha = 0.5: seed 4, then 4 + 0.5 * (8 - 4) = 6, then 6 + 0.5 * (20 - 6) = 13.
-        #expect(MovingAverage.exponential([2, 4, 6, 8, 20], period: 3) == [nil, nil, 4, 6, 13])
+        #expect(IndicatorMath.ema([2, 4, 6, 8, 20], period: 3) == [nil, nil, 4, 6, 13])
     }
 
     @Test func periodsLongerThanDataYieldNil() {
-        #expect(MovingAverage.simple([1, 2], period: 3) == [nil, nil])
-        #expect(MovingAverage.exponential([1, 2], period: 0) == [nil, nil])
+        #expect(IndicatorMath.sma([1, 2], period: 3) == [nil, nil])
+        #expect(IndicatorMath.ema([1, 2], period: 0) == [nil, nil])
     }
 
     @Test func runningSumMatchesNaiveAverage() {
         let closes = CandleSampleData.randomWalk(count: 2_000, seed: 9).map(\.close)
-        let fast = MovingAverage.simple(closes, period: 50)
+        let fast = IndicatorMath.sma(closes, period: 50)
         for index in 49..<closes.count {
             let naive = closes[(index - 49)...index].reduce(0, +) / 50
             #expect(abs(fast[index]! - naive) < 1e-8)
         }
     }
+}
 
-    @Test func cacheRecomputesOnlyWhenCandlesChange() {
+@Suite("Indicator cache")
+struct IndicatorCacheTests {
+    private let candles = CandleSampleData.randomWalk(count: 200, seed: 4)
+
+    @Test func recomputesOnlyWhenCandlesChange() {
         var cache = IndicatorCache()
-        let candles = CandleSampleData.randomWalk(count: 100)
-        let first = cache.series(for: [.sma(period: 10)], candles: candles)
-        let second = cache.series(for: [.sma(period: 10)], candles: candles)
-        #expect(first == second)
-        #expect(cache.computations == 1)
+        let indicators: [any Indicator] = [RSIIndicator(), MACDIndicator()]
 
-        var updated = candles
-        updated[99].close += 1
-        _ = cache.series(for: [.sma(period: 10)], candles: updated)
+        let first = cache.results(for: indicators, candles: candles)
         #expect(cache.computations == 2)
+
+        let second = cache.results(for: indicators, candles: candles)
+        #expect(cache.computations == 2, "a second render with the same data must not recompute")
+        #expect(first[0].plot("rsi")?.values == second[0].plot("rsi")?.values)
+
+        var changed = candles
+        changed[changed.count - 1].close += 1
+        _ = cache.results(for: indicators, candles: changed)
+        #expect(cache.computations == 4, "changed data must recompute both")
+    }
+
+    /// Changing one indicator's parameters must not invalidate the others — the descriptor id
+    /// folds in parameter values precisely so this holds.
+    @Test func recomputesOnlyTheIndicatorThatChanged() {
+        var cache = IndicatorCache()
+        _ = cache.results(for: [RSIIndicator(period: 14), MACDIndicator()], candles: candles)
+        #expect(cache.computations == 2)
+
+        _ = cache.results(for: [RSIIndicator(period: 21), MACDIndicator()], candles: candles)
+        #expect(cache.computations == 3, "only the re-parameterised RSI should recompute")
+    }
+
+    @Test func evictsIndicatorsNoLongerRequested() {
+        var cache = IndicatorCache()
+        _ = cache.results(for: [RSIIndicator(), MACDIndicator(), OBVIndicator()], candles: candles)
+        #expect(cache.computations == 3)
+
+        _ = cache.results(for: [RSIIndicator()], candles: candles)
+        #expect(cache.computations == 3)
+
+        // MACD was evicted, so asking for it again is a fresh computation.
+        _ = cache.results(for: [RSIIndicator(), MACDIndicator()], candles: candles)
+        #expect(cache.computations == 4)
+    }
+
+    @Test func twoIndicatorsOfTheSameTypeCoexist() {
+        var cache = IndicatorCache()
+        let results = cache.results(
+            for: [MovingAverageIndicator(period: 20), MovingAverageIndicator(period: 50)],
+            candles: candles
+        )
+        #expect(cache.computations == 2)
+        #expect(results[0].plot("ma")?.values != results[1].plot("ma")?.values)
+    }
+
+    @Test func handlesAnEmptyIndicatorList() {
+        var cache = IndicatorCache()
+        #expect(cache.results(for: [], candles: candles).isEmpty)
+        #expect(cache.computations == 0)
     }
 }
 

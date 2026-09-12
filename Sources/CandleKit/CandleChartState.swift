@@ -383,6 +383,7 @@ public final class CandleChartState {
     func makeFrame(
         candles newCandles: [Candle],
         indicators: [ChartIndicator],
+        style: CandleChartStyle,
         size: CGSize,
         metrics: ChartMetrics,
         showsVolume: Bool,
@@ -392,6 +393,7 @@ public final class CandleChartState {
             buildFrame(
                 candles: newCandles,
                 indicators: indicators,
+                style: style,
                 size: size,
                 metrics: metrics,
                 showsVolume: showsVolume,
@@ -403,6 +405,7 @@ public final class CandleChartState {
     private func buildFrame(
         candles newCandles: [Candle],
         indicators: [ChartIndicator],
+        style: CandleChartStyle,
         size: CGSize,
         metrics: ChartMetrics,
         showsVolume: Bool,
@@ -448,7 +451,30 @@ public final class CandleChartState {
             viewport = clampedToData(viewport)
         }
 
-        let series = indicatorCache.series(for: indicators.map(\.kind), candles: newCandles)
+        // Only visible indicators are computed; hiding one in a settings UI should stop paying for it.
+        let activeIndicators = indicators.filter(\.isVisible)
+        let results = indicatorCache.results(for: activeIndicators.map(\.indicator), candles: newCandles)
+        let resolved = zip(activeIndicators, results).map { chartIndicator, result in
+            ResolvedIndicator(
+                id: chartIndicator.id,
+                label: chartIndicator.label,
+                pane: chartIndicator.indicator.pane,
+                result: result,
+                lineWidthOverride: chartIndicator.lineWidth,
+                palette: chartIndicator.colors.isEmpty ? style.indicatorPalette : chartIndicator.colors,
+                style: style
+            )
+        }
+        // Autoscale must account for overlays that leave the candles' range — a 200-period MA on a
+        // trending series routinely sits outside the visible highs and lows.
+        let priceOverlaySeries = resolved
+            .filter { $0.pane == .price }
+            .flatMap { indicator in
+                indicator.result.plots.compactMap { plot in
+                    if case .hidden = plot.style { return nil }
+                    return plot.values
+                }
+            }
         let visible = viewport.visibleRange(width: plotWidth, count: newCandles.count)
         // While scrolling, reuse the cached price range so horizontal panning doesn't shift candle heights.
         // Update on data change, zoom (change == .unchanged but !isScrolling covers non-pan interactions),
@@ -457,7 +483,7 @@ public final class CandleChartState {
         if !isScrolling || cachedPriceRange == nil || change != .unchanged {
             ChartPerformance.measure(.priceRange) {
                 let priceWindow = max(0, visible.lowerBound - 15)..<min(newCandles.count, visible.upperBound + 15)
-                cachedPriceRange = PriceScale.autoRange(for: newCandles, in: priceWindow, including: series) ?? 0...1
+                cachedPriceRange = PriceScale.autoRange(for: newCandles, in: priceWindow, including: priceOverlaySeries) ?? 0...1
             }
         }
         let priceRange = cachedPriceRange!
@@ -512,8 +538,7 @@ public final class CandleChartState {
             baseTimeUnit: labels.baseUnit,
             interval: cachedInterval,
             volumeMax: volumeMax,
-            indicators: indicators,
-            indicatorSeries: series,
+            indicators: resolved,
             priceTickLabels: labels.priceLabels,
             timeTickLabels: labels.timeLabels,
             lastPriceLabel: labels.lastPrice

@@ -6,6 +6,50 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Changed — rendering layer migrated onto the indicator engine (Phase 5.10)
+
+The engine added in the previous entry is now what the chart actually draws.
+
+- **`ChartIndicator` wraps any `Indicator`**, including app-defined ones, with optional colour and
+  line-width overrides and an `isVisible` flag (so a settings UI can toggle an indicator without
+  discarding its configuration). Convenience factories added for the whole Tier 1 set:
+  `.bollingerBands()`, `.vwap()`, `.rsi()`, `.macd()`, `.stochastic()`, `.atr()`, `.obv()`,
+  alongside the existing `.sma()` / `.ema()` / new `.wma()`.
+- **`IndicatorCache` is keyed by descriptor**, so changing one indicator's period recomputes only
+  that indicator instead of invalidating every overlay on the chart. Covered by new tests that
+  assert the computation count directly — a cache that silently recomputes every frame is
+  indistinguishable from a working one without them.
+- **The renderer draws the full output model:** lines (with dash patterns), stepped lines,
+  sign-coloured histograms, point markers, fills between plots, and horizontal reference levels.
+  Histograms are batched into two paths by sign, following the same constant-draw-call rule as the
+  candles.
+- **Autoscale now accounts for indicator overlays.** A long moving average on a trending series
+  routinely sits outside the visible highs and lows; previously it would be clipped.
+- **`CandleChartStyle` gained `indicatorPalette`**, so consecutive overlays are visually distinct
+  without the app picking colours.
+- Only visible indicators are computed — hiding one stops paying for it.
+- `IndicatorKind` and `MovingAverage` are deprecated but still work, and now delegate to
+  `IndicatorMath` so there is one implementation rather than two that can drift. Existing
+  `.indicators([.sma(20), .ema(50, color: .blue)])` call sites are unchanged.
+- Demo: Bollinger Bands and VWAP toggles on the Market tab, which exercise the multi-plot and fill
+  paths that a plain moving average never touches.
+
+### Known gap
+
+Indicators that request their own pane — RSI, MACD, Stochastic, ATR, OBV — are computed and cached
+but **not drawn**. The renderer skips anything not on the price pane, because plotting 0–100 RSI
+values against a price scale would be worse than plotting nothing. Roadmap task **5.3** (indicator
+panes) closes this and is the next task; until then, adding `.rsi()` to a chart will correctly
+produce no visible output rather than a wrong one.
+
+### Verification
+
+The Core half — the new cache, its eviction and per-descriptor recomputation — is covered by tests
+you can run with `swift test`. The rendering half is uncompiled as usual: the plot styles, fill
+geometry and colour resolution need an iOS build and a look on a device.
+
+## Earlier unreleased work
+
 ### Added — indicator engine (Phase 5.1, 5.2, most of Tier 1)
 
 The foundation the indicator picker, saved layouts and indicator panes all depend on. All pure

@@ -113,6 +113,7 @@ private struct ChartContentLayer: View {
         let frame = state.makeFrame(
             candles: candles,
             indicators: indicators,
+            style: style,
             size: size,
             metrics: metrics,
             showsVolume: showsVolume,
