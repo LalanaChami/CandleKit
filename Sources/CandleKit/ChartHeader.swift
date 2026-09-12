@@ -20,12 +20,22 @@ struct ChartHeader: View {
 
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
+                // `.numericText` rolls digits up or down instead of cross-fading the whole string —
+                // the standard "stock ticker" look. `.animation(_:value:)` is what actually triggers
+                // it: a content transition only animates changes made inside an animation
+                // transaction, and this is what supplies one whenever `candle.close` changes.
                 Text(ChartFormat.price(candle.close, digits: fractionDigits))
                     .font(.title3.weight(.semibold).monospacedDigit())
+                    .contentTransition(.numericText(value: candle.close))
+                    .animation(.snappy(duration: 0.3), value: candle.close)
                 HStack(spacing: 6) {
                     Text(ChartFormat.signedPrice(change, digits: fractionDigits))
+                        .contentTransition(.numericText(value: change))
+                        .animation(.snappy(duration: 0.3), value: change)
                     if reference != 0 {
                         Text(ChartFormat.percent(change / reference))
+                            .contentTransition(.numericText(value: change / reference))
+                            .animation(.snappy(duration: 0.3), value: change / reference)
                     }
                 }
                 .font(.caption.monospacedDigit())

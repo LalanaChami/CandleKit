@@ -348,19 +348,9 @@ struct BaseLayerRenderer {
             )
         }
 
-        if let last = frame.candles.last, let lastPriceLabel = frame.lastPriceLabel {
-            let y = frame.y(forPrice: last.close)
-            if y >= layout.plot.minY && y <= layout.plot.maxY {
-                ChartText.drawPriceTag(
-                    lastPriceLabel,
-                    y: y,
-                    in: layout.priceAxis,
-                    background: last.isBullish ? style.upColor : style.downColor,
-                    foreground: .white,
-                    context: &context
-                )
-            }
-        }
+        // The last-price tag is no longer drawn here — see `LastPriceBadge` in
+        // CandlestickChart.swift. It needed to become a real SwiftUI view so its digits can use
+        // `.contentTransition(.numericText())`, which has no Canvas equivalent.
     }
 }
 #endif

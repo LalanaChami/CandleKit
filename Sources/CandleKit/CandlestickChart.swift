@@ -75,6 +75,7 @@ public struct CandlestickChart: View {
                         style: style
                     )
                     CrosshairLayer(state: state, style: style)
+                    LastPriceBadge(state: state, candles: candles, style: style)
                     ChartGestureView(state: state)
                         .frame(width: layout.plot.width, height: layout.plot.height)
                         .position(x: layout.plot.midX, y: layout.plot.midY)
@@ -161,6 +162,58 @@ private struct ChartAccessibilityDetails: ViewModifier {
     private func currentFrame() -> ChartFrame? {
         _ = state.revision
         return state.currentFrame
+    }
+}
+
+/// The last-price tag on the price axis, as a real SwiftUI view instead of Canvas-drawn text.
+///
+/// `.contentTransition(.numericText())` — a smooth digit roll instead of a hard cut, the standard
+/// "stock ticker" look — has no Canvas equivalent; `.contentTransition` is a view modifier. This is
+/// the one piece of the chart's text that's worth paying for as a real view over it: it's the single
+/// number a user actually watches tick while a market is open.
+///
+/// Reads `state.revision`, unlike most of this file, so its vertical position tracks the price scale
+/// during a pan or pinch. That's a narrow, cheap subscription — repositioning one small view — not
+/// the whole-subtree cost `ChartContentLayer` exists to avoid.
+private struct LastPriceBadge: View {
+    let state: CandleChartState
+    let candles: [Candle]
+    let style: CandleChartStyle
+
+    /// Approximates `caption2` + the padding below closely enough for the vertical clamp; being a
+    /// few points off only matters right at the top or bottom edge of the plot.
+    private static let height: CGFloat = 20
+
+    var body: some View {
+        let _ = state.revision
+        if let last = candles.last, let frame = state.currentFrame, let label = frame.lastPriceLabel {
+            let axis = frame.layout.priceAxis
+            let plot = frame.layout.plot
+            let half = Self.height / 2
+            let y = min(max(frame.y(forPrice: last.close), plot.minY + half), plot.maxY - half)
+
+            HStack(spacing: 0) {
+                Text(label)
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(
+                        last.isBullish ? style.upColor : style.downColor,
+                        in: RoundedRectangle(cornerRadius: 4)
+                    )
+                    // Scoped to just this Text, so only the digits animate — the position above is
+                    // computed outside this modifier chain and snaps to the new scale instantly,
+                    // exactly as it did when this was drawn in the Canvas.
+                    .contentTransition(.numericText(value: last.close))
+                    .animation(.snappy(duration: 0.3), value: last.close)
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 2)
+            .frame(width: axis.width, height: Self.height, alignment: .leading)
+            .position(x: axis.minX + axis.width / 2, y: y)
+            .allowsHitTesting(false)
+        }
     }
 }
 

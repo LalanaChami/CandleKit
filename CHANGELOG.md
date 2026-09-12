@@ -6,6 +6,21 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Fixed — docs
+
+- `docs/PERFORMANCE.md`: the `xctrace` example was wrong in two ways. `--output` was placed after
+  `--launch --`, where everything is passed to the launched app, so it was silently ignored and
+  traces landed under auto-generated names. And `--launch --` takes a path to the `.app` bundle, not
+  a bundle identifier.
+- Made it explicit that **Animation Hitches requires a physical device** — on the Simulator it fails
+  with `Hitches is not supported on this platform`, because hitch measurement reads real display
+  pipeline timing. Added a section on what the Simulator can and can't tell you (gross algorithmic
+  problems yes; relative phase cost no, since CPU work runs on the Mac's cores while rendering takes
+  a different path), an `--attach` recipe that's easier for interactive profiling, the Xcode GUI
+  route as the recommended default, and a troubleshooting table.
+
+## Earlier unreleased work
+
 ### Added — performance instrumentation
 
 Scrolling and the appear animation are reported fixed. This adds the measurement infrastructure
@@ -113,6 +128,34 @@ and hasn't been checked on a device.
   pared back to three: one light tap when the crosshair engages, one rigid tap at a hard zoom limit,
   one medium tap on double-tap-to-reset. Per-candle crosshair ticks still come from
   `CrosshairLayer`'s existing `.sensoryFeedback(.selection)`, unchanged.
+
+### Added — animated price ticker
+
+- The last-price tag (the badge on the price axis showing the current close) and `ChartHeader`'s
+  price, change and percent values now use `.contentTransition(.numericText())`: digits roll up or
+  down instead of cross-fading, the standard "stock ticker" look, on every live tick.
+- This required moving the last-price tag out of the Canvas into a real SwiftUI view
+  (`LastPriceBadge`, new). `.contentTransition` is a view modifier with no Canvas equivalent —
+  Canvas-drawn text is rasterised immediately and can't animate. `ChartHeader`'s prices were already
+  real views, so those only needed the modifier added.
+- **Scoped deliberately to the numbers people actually watch tick**, not every number the chart
+  draws. Axis tick labels and the crosshair's price/time tags stay Canvas-drawn:
+  - Tick labels are a poor fit for `numericText` regardless — the *set* of visible ticks changes
+    identity as the price range autoscales or the user pans, which is an insertion/removal, not a
+    value transition on a stable view.
+  - The crosshair's tags already update at gesture-frame-rate as a finger drags; animating those
+    would fight the drag rather than help it, and would reintroduce a per-frame real-view cost in
+    exactly the place the previous two passes worked to remove it.
+  - If axis tick labels ever move to real views, it'll most likely be to fix the "text drawing in
+    Canvas" performance question (see `docs/PERFORMANCE.md`), not for this animation — worth doing
+    together if a trace shows `draw.axes` is hot, since the same view-based fix would clear both.
+- `LastPriceBadge` reads `state.revision`, unlike most of `CandlestickChart.swift` — its vertical
+  position needs to track the price scale during a pan or pinch. That's a deliberately narrow,
+  cheap subscription (repositioning one small view), not the whole-subtree cost the render-scope
+  refactor in the previous pass exists to avoid.
+
+## Earlier unreleased work
+
 
 ### Added
 
