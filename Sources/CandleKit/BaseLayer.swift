@@ -29,26 +29,32 @@ struct BaseLayerRenderer {
     private static let appearBucketCount = 8
 
     func draw(in context: inout GraphicsContext) {
+        ChartPerformance.measure(.drawTotal) {
+            drawPhases(in: &context)
+        }
+    }
+
+    private func drawPhases(in context: inout GraphicsContext) {
         var plotContext = context
         plotContext.clip(to: Path(frame.layout.plot))
-        drawGrid(in: &plotContext)
+        ChartPerformance.measure(.drawGrid) { drawGrid(in: &plotContext) }
         if appearPhase < 1.0 {
             // During the appear animation candles draw per-candle (no path batching) so each can
             // carry its own staggered opacity. Volume, indicators and the last-price line fade in
             // together at the overall phase so they trail the candles visually.
-            drawAnimatedCandles(in: &plotContext)
+            ChartPerformance.measure(.drawAppear) { drawAnimatedCandles(in: &plotContext) }
             var fadedContext = plotContext
             fadedContext.opacity *= appearPhase
-            drawVolume(in: &fadedContext)
-            drawIndicators(in: &fadedContext)
+            ChartPerformance.measure(.drawVolume) { drawVolume(in: &fadedContext) }
+            ChartPerformance.measure(.drawIndicators) { drawIndicators(in: &fadedContext) }
             drawLastPriceLine(in: &fadedContext)
         } else {
-            drawVolume(in: &plotContext)
-            drawCandles(in: &plotContext)
-            drawIndicators(in: &plotContext)
+            ChartPerformance.measure(.drawVolume) { drawVolume(in: &plotContext) }
+            ChartPerformance.measure(.drawCandles) { drawCandles(in: &plotContext) }
+            ChartPerformance.measure(.drawIndicators) { drawIndicators(in: &plotContext) }
             drawLastPriceLine(in: &plotContext)
         }
-        drawAxes(in: &context)
+        ChartPerformance.measure(.drawAxes) { drawAxes(in: &context) }
     }
 
     // MARK: Geometry

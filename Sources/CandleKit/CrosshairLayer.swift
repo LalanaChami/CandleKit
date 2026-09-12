@@ -23,6 +23,7 @@ struct CrosshairLayer: View {
 
             Canvas { context, _ in
                 guard let frame, frame.candles.indices.contains(index) else { return }
+                ChartPerformance.measure(.drawCrosshair) {
                 let pixels = PixelGrid(scale: scale)
                 let plot = frame.layout.plot
                 let x = pixels.hairlineCenter(frame.centerX(ofCandle: index))
@@ -55,6 +56,7 @@ struct CrosshairLayer: View {
                     foreground: tagForeground,
                     context: &context
                 )
+                }
             }
             .allowsHitTesting(false)
             .sensoryFeedback(.selection, trigger: index)

@@ -6,6 +6,30 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added — performance instrumentation
+
+Scrolling and the appear animation are reported fixed. This adds the measurement infrastructure
+that should have come first, so the next round of performance work starts from numbers.
+
+- `ChartPerformance`: opt-in instrumentation naming twelve phases of the per-frame work
+  (`makeFrame`, `makeFrame.priceRange`, `draw.candles`, `draw.axes`, `draw.crosshair`, …). Emits
+  `OSSignposter` intervals for the Points of Interest track in Instruments, and collects timings
+  that `ChartPerformance.report(scenario:)` renders as a markdown table with call counts and
+  mean/p50/p95/max per phase.
+- Off by default, costing one `Bool` check per phase. Enable with the `CANDLEKIT_PERF` environment
+  variable — so a Release build can be profiled without recompiling — or `setEnabled(_:)`.
+- Demo: a capture bar on the Performance tab (record → interact → stop → copy). Reports are tagged
+  with the device model, OS version and candle count, and simulator runs are labelled as not
+  representative. `UIDevice.name` is deliberately not used, since it's often the owner's real name
+  and these reports get pasted into a public repo.
+- `docs/PERFORMANCE.md` rewritten: phase reference, in-app capture recipe, Instruments recipe
+  (including an `xctrace` invocation), how to read the numbers against a 120 Hz budget, the two
+  known-remaining costs, and a trace log with a template. The log is empty — the first entry should
+  be a baseline on current `main`.
+- `CLAUDE.md`: performance changes now require a before/after trace entry in the same change.
+
+## Earlier unreleased work
+
 ### Performance — second pass (scrolling, zooming, appear animation)
 
 Follow-up after the first pass didn't resolve the reported lag. See `docs/PERFORMANCE.md` for the

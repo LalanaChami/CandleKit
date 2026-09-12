@@ -377,6 +377,26 @@ public final class CandleChartState {
         showsVolume: Bool,
         fractionDigits: Int?
     ) -> ChartFrame {
+        ChartPerformance.measure(.makeFrame) {
+            buildFrame(
+                candles: newCandles,
+                indicators: indicators,
+                size: size,
+                metrics: metrics,
+                showsVolume: showsVolume,
+                fractionDigits: fractionDigits
+            )
+        }
+    }
+
+    private func buildFrame(
+        candles newCandles: [Candle],
+        indicators: [ChartIndicator],
+        size: CGSize,
+        metrics: ChartMetrics,
+        showsVolume: Bool,
+        fractionDigits: Int?
+    ) -> ChartFrame {
         let layout = ChartLayout(size: size, metrics: metrics, showsVolume: showsVolume)
         plotWidth = Double(layout.plot.width)
 
@@ -424,8 +444,10 @@ public final class CandleChartState {
         // or when no cache exists yet. A ±15-candle window means occasional boundary candles don't jitter
         // the scale even when the cache refreshes.
         if !isScrolling || cachedPriceRange == nil || change != .unchanged {
-            let priceWindow = max(0, visible.lowerBound - 15)..<min(newCandles.count, visible.upperBound + 15)
-            cachedPriceRange = PriceScale.autoRange(for: newCandles, in: priceWindow, including: series) ?? 0...1
+            ChartPerformance.measure(.priceRange) {
+                let priceWindow = max(0, visible.lowerBound - 15)..<min(newCandles.count, visible.upperBound + 15)
+                cachedPriceRange = PriceScale.autoRange(for: newCandles, in: priceWindow, including: series) ?? 0...1
+            }
         }
         let priceRange = cachedPriceRange!
         let priceScale = LinearScale(
@@ -444,18 +466,66 @@ public final class CandleChartState {
             volumeMax = max(volumeMax, newCandles[index].volume)
         }
 
-        let timeTicks = TimeScale.ticks(
-            for: newCandles,
-            in: visible,
-            spacing: viewport.spacing,
-            minimumLabelSpacing: metrics.timeLabelSpacing,
-            interval: cachedInterval
-        )
+        let timeTicks = ChartPerformance.measure(.timeTicks) {
+            TimeScale.ticks(
+                for: newCandles,
+                in: visible,
+                spacing: viewport.spacing,
+                minimumLabelSpacing: metrics.timeLabelSpacing,
+                interval: cachedInterval
+            )
+        }
 
         // --- Axis label strings -------------------------------------------------------------
         // Formatted here, on the main actor, once per change — not inside the Canvas closure on
         // every frame. While panning, the tick values are usually identical frame to frame, so
         // these cache hits skip the formatting entirely.
+        let labels = ChartPerformance.measure(.labels) {
+            buildLabels(
+                priceTicks: priceTicks,
+                timeTicks: timeTicks,
+                candles: newCandles,
+                fractionDigits: fractionDigits
+            )
+        }
+
+        let frame = ChartFrame(
+            candles: newCandles,
+            layout: layout,
+            viewport: viewport,
+            visible: visible,
+            priceScale: priceScale,
+            priceTicks: priceTicks,
+            priceFractionDigits: labels.digits,
+            timeTicks: timeTicks,
+            baseTimeUnit: labels.baseUnit,
+            interval: cachedInterval,
+            volumeMax: volumeMax,
+            indicators: indicators,
+            indicatorSeries: series,
+            priceTickLabels: labels.priceLabels,
+            timeTickLabels: labels.timeLabels,
+            lastPriceLabel: labels.lastPrice
+        )
+
+        // Store this frame so subsequent animation ticks can return immediately without recomputing.
+        if appearPhase < 1.0 {
+            cachedAnimationFrame = frame
+            cachedAnimationSize  = size
+        }
+
+        currentFrame = frame
+        return frame
+    }
+
+    /// Formats the axis label strings, reusing cached ones whenever the ticks that produced them
+    /// are unchanged. Split out of `buildFrame` so it can be timed as its own phase.
+    private func buildLabels(
+        priceTicks: PriceTicks,
+        timeTicks: [TimeTick],
+        candles newCandles: [Candle],
+        fractionDigits: Int?
+    ) -> (priceLabels: [String], baseUnit: TimeLabelUnit, timeLabels: [String], digits: Int, lastPrice: String?) {
         let priceTickLabels: [String]
         if let cachedPriceTicks, cachedPriceTicks == priceTicks {
             priceTickLabels = cachedPriceTickLabels
@@ -488,33 +558,7 @@ public final class CandleChartState {
             cachedLastPriceLabel = lastPriceLabel
         }
 
-        let frame = ChartFrame(
-            candles: newCandles,
-            layout: layout,
-            viewport: viewport,
-            visible: visible,
-            priceScale: priceScale,
-            priceTicks: priceTicks,
-            priceFractionDigits: resolvedDigits,
-            timeTicks: timeTicks,
-            baseTimeUnit: baseUnit,
-            interval: cachedInterval,
-            volumeMax: volumeMax,
-            indicators: indicators,
-            indicatorSeries: series,
-            priceTickLabels: priceTickLabels,
-            timeTickLabels: timeTickLabels,
-            lastPriceLabel: lastPriceLabel
-        )
-
-        // Store this frame so subsequent animation ticks can return immediately without recomputing.
-        if appearPhase < 1.0 {
-            cachedAnimationFrame = frame
-            cachedAnimationSize  = size
-        }
-
-        currentFrame = frame
-        return frame
+        return (priceTickLabels, baseUnit, timeTickLabels, resolvedDigits, lastPriceLabel)
     }
 
     // MARK: Private

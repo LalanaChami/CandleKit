@@ -52,7 +52,9 @@ struct PerformanceView: View {
                 }
                 .frame(maxHeight: .infinity)
 
-                Text("Fling the chart and pinch all the way out. The meter counts display refreshes, which is a quick signal only. For real numbers, profile a release build with the Animation Hitches template in Instruments.")
+                PerformanceCaptureBar(scenario: "Performance tab", candleCount: candles.count)
+
+                Text("Fling the chart and pinch all the way out. The meter counts display refreshes, which is a quick signal only. Use Capture to record a phase-by-phase breakdown you can paste into docs/PERFORMANCE.md, and Instruments' Animation Hitches template on a Release build for the full picture.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

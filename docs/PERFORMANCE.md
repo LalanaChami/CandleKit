@@ -1,79 +1,129 @@
 # Performance
 
-## Read this first
+## Why this file exists
 
-Three rounds of performance work have now shipped without a single measurement, because the
-environment they were written in has no Swift toolchain and no device. Each round fixed something
-real, and each round guessed at the ranking. That's a bad way to fix a frame-rate problem: the
-usual outcome is that four true-but-minor costs get fixed while the one that actually dominates is
-never touched.
+CandleKit's first three rounds of performance work were done without a single measurement — costs
+were ranked by reading the code. Each round fixed something real, but the ranking was guesswork, and
+the usual result of that is fixing four minor things while the dominant cost goes untouched.
 
-**The highest-value next step is a ten-minute Instruments trace, not another round of guesses.**
-The recipe is below. With a hot-spot list from a real device, the remaining work becomes precise.
+Scrolling and the appear animation are reported fixed as of the second perf pass. This file exists
+so the *next* problem gets numbers first. **Record a trace before changing anything for performance,
+and paste it into the log at the bottom.**
 
-## Getting a trace
+## The chart measures its own phases
 
-1. Build the **Demo** app in **Release** (Product → Scheme → Edit Scheme → Run → Build
-   Configuration → Release). Debug builds have unoptimised Swift and misleading SwiftUI overhead;
-   a Debug trace will send you after the wrong thing.
-2. Run on a **real device**, not the simulator. The simulator's rendering path isn't
-   representative. A ProMotion iPhone is ideal, since a 120 Hz target is the hardest case.
-3. Product → Profile → **Time Profiler**. Add the **Animation Hitches** and **SwiftUI** instruments
-   to the same document.
-4. Record while doing one thing at a time, roughly 10 seconds each, in this order:
-   - a. Slow continuous panning on the Market tab (5m timeframe).
-   - b. Hard flings, letting momentum run out.
-   - c. Continuous pinch in and out.
-   - d. Switching timeframe (this triggers the appear animation).
-   - e. Repeat b and c on the **Performance tab at 100K candles**.
-5. Stop. In Time Profiler, set the call tree to **Invert Call Tree** and **Hide System Libraries**,
-   then look at the top 10 symbols for each window.
+The renderer is instrumented with named phases (`Sources/CandleKit/ChartPerformance.swift`). They
+feed two outputs from the same measurements:
 
-## What to report back
+- **Signposts** on the Points of Interest track in Instruments, so named intervals line up against
+  Animation Hitches instead of leaving you to map SwiftUI symbols back to chart work by hand.
+- **A markdown table** from `ChartPerformance.report(scenario:)`, which is what goes in the log
+  below.
 
-For each of the five windows, the top 10 inverted-call-tree symbols with their weights, plus from
-the Animation Hitches track: hitch count, total hitch time, and the longest single hitch. That's
-enough to rank the remaining work properly.
+Instrumentation is **off by default** and costs one `Bool` check per phase when off. Turn it on by
+setting `CANDLEKIT_PERF` in the scheme's environment, or by calling
+`ChartPerformance.setEnabled(true)`.
 
-## Hypotheses, ranked
+### Phases
 
-These are the costs identified by reading the code. The ranking is a guess until a trace confirms
-it — that's the point of the section above.
+| Phase | What it covers |
+| --- | --- |
+| `makeFrame` | All of `CandleChartState.makeFrame`: data reconciliation, scales, ticks, labels |
+| `makeFrame.priceRange` | Price autorange (skipped on a cache hit while panning) |
+| `makeFrame.timeTicks` | Time-tick placement |
+| `makeFrame.labels` | Axis label formatting (near-zero on a cache hit) |
+| `draw.total` | The whole base-layer Canvas closure |
+| `draw.grid` / `draw.volume` / `draw.candles` / `draw.indicators` | Batched geometry layers |
+| `draw.appear` | Bucketed appear-animation candles (only while animating) |
+| `draw.axes` | Axis labels and the last-price tag — the text-drawing path |
+| `draw.crosshair` | The crosshair overlay Canvas (only while a crosshair is up) |
 
-| # | Suspected cost | Status |
-| --- | --- | --- |
-| 1 | Whole-body invalidation: `CandlestickChart.body` read `revision`, so every animation frame rebuilt the header, the accessibility strings, the gesture representable and the ZStack. | Fixed (unverified) |
-| 2 | `ChartAccessibility.summary` formatting two dates and two numbers **per frame**, for a string only VoiceOver reads. Date formatting is among the most expensive things Foundation does. | Fixed (unverified) |
-| 3 | Appear animation copying `GraphicsContext` and issuing 2–3 fills **per candle per frame** — over a thousand draw calls per frame at wide zoom. | Fixed (unverified) |
-| 4 | Axis labels running `FormatStyle` for every tick inside the Canvas draw closure, every frame. | Fixed (unverified) |
-| 5 | An always-present crosshair `Canvas` re-rasterising every frame even with no crosshair shown. | Fixed (unverified) |
-| 6 | `context.draw(Text)` in Canvas: ~12 text layouts per frame, which SwiftUI may or may not cache across frames. Cannot be removed without moving axis labels out of the Canvas into real `Text` views. | **Open** — see below |
-| 7 | Per-frame O(visible) geometry for candles, volume and indicators. Unavoidable in principle, but at minimum zoom on iPad this is ~1000 candles × several layers. | **Open** |
-| 8 | During a pinch, `isScrolling` is false, so the price range, tick values and every label string are recomputed each frame. Legitimate (the scale really is changing), but it makes zoom strictly more expensive than pan. | **Open** |
-| 9 | `Canvas` renders synchronously on the main thread by default. `rendersAsynchronously: true` may help, but interacts badly with text. Worth an experiment once a trace exists. | **Open — experiment** |
+## Recipe A — in-app capture (fastest)
 
-### If the trace points at #6 (text drawing)
+Gets you the table in the log below in about a minute per scenario.
 
-The fix is to stop drawing axis labels inside the `Canvas` and render them as real SwiftUI `Text`
-views positioned over it. SwiftUI caches glyph rasterisation for unchanged `Text`, so panning would
-stop re-rasterising labels entirely. This is a real refactor of `drawAxes`, which is why it hasn't
-been done speculatively.
+1. Build the **Demo** in **Release** (Product → Scheme → Edit Scheme → Run → Build Configuration →
+   Release). A Debug trace has unoptimised Swift and misleading SwiftUI overhead; it will send you
+   after the wrong thing.
+2. Run on a **real device**. The simulator's rendering path isn't representative — the capture bar
+   labels simulator reports as such, and those rows don't belong in the log.
+3. Performance tab → pick a dataset size → **Capture**.
+4. Do exactly one interaction for ~10 seconds: slow pan, or hard flings, or continuous pinch.
+5. **Stop capture** → **Copy** → paste into the log below under the right heading.
 
-### If the trace points at #7 (raw geometry volume)
+Repeat per scenario. One interaction per capture — mixing them averages the interesting case away.
 
-Options, in increasing order of effort: raise `ZoomLimits.minimumSpacing` so fewer candles are ever
-on screen at once; downsample to one candle per horizontal pixel below some spacing threshold
-(visually identical, since sub-pixel candles can't be distinguished anyway); or move the renderer
-to Metal behind the existing seam.
+## Recipe B — Instruments (when you need the full picture)
 
-The downsampling option is probably the best value: below roughly 2pt spacing the user cannot
-resolve individual candles, so aggregating each pixel column into a single min/max/first/last bar
-costs nothing visually and cuts the per-frame work by whatever the oversampling factor is.
+Recipe A only measures what CandleKit times. It can't see SwiftUI diffing, Core Animation commits,
+or text rasterisation inside `Canvas`. When the phase table doesn't explain the hitches, do this:
 
-## Baseline
+1. Release build on device, as above.
+2. Product → Profile → **Time Profiler**, then add **Animation Hitches**, **SwiftUI**, and
+   **os_signpost** to the same document.
+3. Record ~10 seconds each of: slow pan · hard flings · continuous pinch · timeframe switch (fires
+   the appear animation) · the same on the Performance tab at 100K candles.
+4. In Time Profiler, set **Invert Call Tree** and **Hide System Libraries**, then read the top 10
+   symbols for each window. The signpost track tells you which chart phase each window sits in.
 
-No numbers recorded yet. Fill this in from the first trace:
+From the command line, if you'd rather script it:
 
-| Device | OS | Scenario | Candles | Hitches | Longest hitch | Notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| | | | | | | |
+```sh
+xcrun xctrace record --template 'Animation Hitches' \
+  --device-name '<your device>' \
+  --launch -- '<app bundle id>' \
+  --output trace.trace
+```
+
+### What to record in the log
+
+For an Instruments run: hitch count, total hitch time, longest single hitch, and the top 5 inverted
+symbols. For an in-app capture: paste the table as-is.
+
+## Interpreting the numbers
+
+A 120 Hz frame budget is **8.3 ms** and 60 Hz is **16.7 ms** — for *everything*, including the
+SwiftUI and Core Animation work the phase table doesn't measure. Treat any phase over ~3 ms as worth
+attention, and remember `draw.total` already includes its sub-phases (don't add them up).
+
+## Known-remaining costs
+
+Neither has been measured. Do that before acting on either.
+
+- **Text drawing in `Canvas`** (`draw.axes`). Roughly 12 `context.draw(Text)` calls per frame, which
+  SwiftUI may or may not cache across frames. If `draw.axes` is hot, the fix is to render axis labels
+  as real SwiftUI `Text` views positioned over the Canvas, so glyph rasterisation is cached while
+  panning. That's a real refactor of `drawAxes`, which is why it hasn't been done speculatively.
+- **Raw geometry volume** (`draw.candles`, `draw.volume`). At minimum spacing on an iPad that's
+  ~1000 candles across several layers. Best value fix is downsampling: below ~2pt spacing individual
+  candles can't be resolved anyway, so aggregating each pixel column into one min/max/first/last bar
+  is visually free and cuts the work by the oversampling factor. Failing that, raise
+  `ZoomLimits.minimumSpacing`, or move the renderer to Metal behind the existing seam.
+
+---
+
+# Trace log
+
+Newest first. Every entry needs device, OS, dataset size and interaction, or it can't be compared
+against anything. Simulator runs don't belong here.
+
+## Template
+
+```
+## <date> — <what changed since the last entry, or "baseline">
+
+### <interaction> · <N> candles · <device> · iOS <version>
+
+| Phase | Calls | Mean ms | p50 ms | p95 ms | Max ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `draw.total` | | | | | |
+
+Hitches: <count> · total <ms> · longest <ms>
+Top inverted symbols: 1. … 2. … 3. …
+Notes: <anything unusual — thermal state, other apps, Low Power Mode>
+```
+
+## Entries
+
+_Empty. The first entry should be a baseline captured on the current `main`, before any further
+performance changes — that's what everything after it gets compared against._
