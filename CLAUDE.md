@@ -6,9 +6,9 @@ Open-source Swift package for interactive candlestick charts on iOS: TradingView
 
 ## Current state — read first
 
-- **The code has never been compiled.** v0.1 was written without a Swift toolchain. Expect compile errors, especially in `Sources/CandleKit/` (Swift 6 concurrency, UIKit bridging, Accessibility APIs). Getting it building is roadmap Phase 0.
+- **The code has never been compiled.** v0.1 was written without a Swift toolchain. Expect compile errors, especially in `Sources/CandleKit/` (Swift 6 concurrency, UIKit bridging, Accessibility APIs). Getting it building is roadmap Phase 0. A later pass (see `CHANGELOG.md`, "Unreleased") fixed several leak/smoothness bugs found by *reading* the code, which is still true of that pass too — it needs the same Phase 0 build-and-device verification before anyone should trust it.
 - No CI, no release tag. The README's `from: "0.1.0"` doesn't resolve yet.
-- All planned work, known issues and open questions are in `docs/ROADMAP.md`. Read the relevant section before starting a task, and update its status in the same change that completes it.
+- All planned work, known issues and open questions are in `docs/ROADMAP.md`. Read the relevant section before starting a task, and update its status in the same change that completes it. Check `CHANGELOG.md` for what's already changed and why before re-deriving the same reasoning.
 
 ## Commands
 

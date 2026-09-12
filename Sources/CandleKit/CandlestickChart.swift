@@ -88,6 +88,10 @@ public struct CandlestickChart: View {
             }
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        // Stops any in-flight appear or spring animation the moment this chart leaves the view
+        // hierarchy — a `List` row scrolling away mid-animation, a sheet being dismissed, a
+        // NavigationStack pop — so its CADisplayLink isn't left running in the background.
+        .onDisappear { state.stopAnimations() }
     }
 }
 

@@ -121,7 +121,9 @@ struct MarketView: View {
                 Toggle("Volume", isOn: $showsVolume)
             }
             Button("Reset zoom", systemImage: "arrow.counterclockwise") {
-                chartState.resetZoom()
+                // Same spring as double-tap-to-reset on the chart itself, so the menu action and
+                // the gesture that does the same thing feel the same.
+                chartState.animatedResetZoom()
             }
         } label: {
             Label("Chart options", systemImage: "slider.horizontal.3")
@@ -143,7 +145,9 @@ struct JumpToLatestButton: View {
     var body: some View {
         if !state.isFollowingLatest {
             Button {
-                state.scrollToLatest()
+                // Matches the spring double-tap-to-reset already uses, instead of a hard snap —
+                // and automatically respects Reduce Motion, since that check lives in CandleKit.
+                state.animatedScrollToLatest()
             } label: {
                 Label("Latest", systemImage: "arrow.right.to.line")
             }

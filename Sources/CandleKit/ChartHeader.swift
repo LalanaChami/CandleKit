@@ -35,7 +35,7 @@ struct ChartHeader: View {
             Spacer(minLength: 8)
 
             VStack(alignment: .trailing, spacing: 2) {
-                Text(ChartFormat.detailedTime(candle.time, interval: TimeScale.estimatedInterval(of: candles)))
+                Text(ChartFormat.detailedTime(candle.time, interval: state.cachedInterval))
                     .foregroundStyle(inspected == nil ? Color.secondary : Color.primary)
                 HStack(spacing: 8) {
                     field("O", candle.open)

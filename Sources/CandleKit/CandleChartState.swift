@@ -2,6 +2,7 @@
 import Observation
 import QuartzCore
 import SwiftUI
+import UIKit
 
 /// Scroll position, zoom level and crosshair for a ``CandlestickChart``.
 ///
@@ -43,7 +44,9 @@ public final class CandleChartState {
     @ObservationIgnored private var crosshairHandler: ((Candle?) -> Void)?
     @ObservationIgnored private var oldestCandleHandler: (() -> Void)?
     // Cached so makeFrame never calls estimatedInterval during a pan frame (it only changes with data).
-    @ObservationIgnored private var cachedInterval: TimeInterval = 60
+    // Not `private`: `ChartHeader` reads it too, so it doesn't redundantly recompute the same value
+    // on every render (it used to — see CHANGELOG).
+    @ObservationIgnored private(set) var cachedInterval: TimeInterval = 60
     // Frozen while the user is scrolling so horizontal panning doesn't shift all candle Y-positions.
     @ObservationIgnored private var cachedPriceRange: ClosedRange<Double>? = nil
     /// True while the user is panning or momentum/spring-back is running. `makeFrame` skips
@@ -247,19 +250,39 @@ public final class CandleChartState {
         stopAppearAnimation()
     }
 
+    /// Immediately stops any running appear or spring-to-target animation, without changing the
+    /// current viewport or `appearPhase`. `CandlestickChart` calls this automatically when the chart
+    /// leaves the view hierarchy, so a still-running animation doesn't keep this object — and
+    /// everything it holds — alive in the background. Call it yourself if you manage a
+    /// `CandleChartState` outside a `CandlestickChart`'s own lifecycle, for example one chart state
+    /// per row in a list of charts that scroll on and off screen.
+    public func stopAnimations() {
+        stopAppearAnimation()
+        stopSpringAnimation()
+    }
+
     private func startSpringAnimation(to target: Viewport) {
         stopSpringAnimation()
+
+        // Reduce Motion: this is an autonomous transition (not tied to a finger on screen), so it's
+        // squarely what the setting asks apps to cut. Jump straight to the destination instead.
+        if UIAccessibility.isReduceMotionEnabled {
+            viewport = clampedToData(target)
+            revision &+= 1
+            requestOlderCandlesIfNeeded()
+            return
+        }
+
         springTargetViewport = target
         springRightEdgeVelocity = 0
         springSpacingVelocity = 0
         springLastTimestamp = CACurrentMediaTime()
-        let link = CADisplayLink(target: self, selector: #selector(stepSpringAnimation(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
-        link.add(to: .main, forMode: .common)
-        springDisplayLink = link
+        springDisplayLink = DisplayLinkProxy.scheduled(target: self) { state, link in
+            state.stepSpringAnimation(link)
+        }
     }
 
-    @objc private func stepSpringAnimation(_ link: CADisplayLink) {
+    private func stepSpringAnimation(_ link: CADisplayLink) {
         guard let target = springTargetViewport else { stopSpringAnimation(); return }
         // targetTimestamp is when this frame will appear on screen — computing physics to that moment
         // removes the systematic one-frame lag that timestamp-based calculations have.
@@ -301,13 +324,12 @@ public final class CandleChartState {
 
     private func startAppearAnimation() {
         stopAppearAnimation()
-        let link = CADisplayLink(target: self, selector: #selector(stepAppearAnimation(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
-        link.add(to: .main, forMode: .common)
-        appearDisplayLink = link
+        appearDisplayLink = DisplayLinkProxy.scheduled(target: self) { state, link in
+            state.stepAppearAnimation(link)
+        }
     }
 
-    @objc private func stepAppearAnimation(_ link: CADisplayLink) {
+    private func stepAppearAnimation(_ link: CADisplayLink) {
         let elapsed = link.targetTimestamp - link.timestamp
         appearPhase = min(1.0, appearPhase + elapsed / 0.5)
         revision &+= 1
@@ -348,10 +370,16 @@ public final class CandleChartState {
         // Trigger the candle appear animation on initial load or a full series replacement.
         // `startAppearAnimation` only mutates @ObservationIgnored properties (the CADisplayLink),
         // so it is safe to call directly here without deferring via Task.
+        // Reduce Motion: this sweep is decorative, not information-bearing, so skip it and show
+        // the candles immediately rather than just playing it faster.
         if (change == .initial || change == .replaced) && !newCandles.isEmpty {
-            appearPhase = 0.0
             cachedAnimationFrame = nil   // stale cache from a previous run must not be reused
-            startAppearAnimation()
+            if UIAccessibility.isReduceMotionEnabled {
+                appearPhase = 1.0
+            } else {
+                appearPhase = 0.0
+                startAppearAnimation()
+            }
         }
 
         // While the appear animation is running and data hasn't changed, skip the O(visible)

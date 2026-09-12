@@ -1,5 +1,4 @@
 #if os(iOS)
-import AudioToolbox
 import SwiftUI
 import UIKit
 
@@ -46,7 +45,9 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     private var momentumDisplayLink: CADisplayLink?
     private var momentumVelocity: Double = 0
     private var lastMomentumTimestamp: CFTimeInterval = 0
-    private var firedEdgeHaptic = false
+    /// The view whose width momentum needs for rubber-band resistance at the edges. Weak because
+    /// the coordinator must not be the reason the view sticks around.
+    private weak var hostView: UIView?
 
     /// Matches `UIScrollView.DecelerationRate.normal`: velocity retained per millisecond.
     private static let decelerationPerMillisecond = 0.998
@@ -66,19 +67,19 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     private static let springDamping = 35.0
 
     // MARK: Haptic generators
+    //
+    // Haptics here are deliberately sparse: one light tap when the crosshair engages (the ongoing
+    // per-candle ticks as it moves come from `CrosshairLayer`'s `.sensoryFeedback`, not from here),
+    // one rigid tap when a pinch hits its zoom limit, and one medium tap when double-tap resets the
+    // view. Momentum reaching the data edge no longer has its own haptic — it now visibly bounces
+    // (see `stepMomentum`), and the motion itself is the feedback. There are no accompanying sound
+    // effects: `AudioServicesPlaySystemSound` for routine scrolling and zooming is not how iOS charts
+    // (or UIScrollView itself) normally behave, and the specific sound IDs a prior version of this
+    // file used are undocumented UIKit internals, not public API.
 
     private lazy var impactLight  = UIImpactFeedbackGenerator(style: .light)
     private lazy var impactMedium = UIImpactFeedbackGenerator(style: .medium)
     private lazy var impactRigid  = UIImpactFeedbackGenerator(style: .rigid)
-    private lazy var impactSoft   = UIImpactFeedbackGenerator(style: .soft)
-
-    // MARK: Sound IDs — respect silent mode via AudioServicesPlaySystemSound
-
-    private enum Sound {
-        static let peek: SystemSoundID = 1519   // very light tap
-        static let pop:  SystemSoundID = 1520   // medium click
-        static let nope: SystemSoundID = 1521   // firm stop
-    }
 
     // MARK: Zoom-limit detection
 
@@ -94,10 +95,15 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     }
 
     func install(on view: UIView) {
+        hostView = view
         panRecognizer.addTarget(self, action: #selector(handlePan(_:)))
         pinchRecognizer.addTarget(self, action: #selector(handlePinch(_:)))
         longPressRecognizer.addTarget(self, action: #selector(handleLongPress(_:)))
-        longPressRecognizer.minimumPressDuration = 0.15
+        // 0.25s: quick enough to feel responsive, but past the dwell time an ordinary slow drag
+        // spends before UIPanGestureRecognizer's own movement threshold is satisfied. A shorter
+        // value here made deliberate, careful scrolling occasionally get claimed by long-press
+        // instead of pan, since holding still briefly is easy to do by accident at the start of a drag.
+        longPressRecognizer.minimumPressDuration = 0.25
         doubleTapRecognizer.addTarget(self, action: #selector(handleDoubleTap(_:)))
         doubleTapRecognizer.numberOfTapsRequired = 2
 
@@ -116,7 +122,6 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
             stopAllAnimations()          // sets isScrolling = false via stopMomentum/stopSpring
             state.cancelAnimation()
             state.isScrolling = true     // re-arm: panning has begun
-            impactLight.prepare()
             isOverscrolling = false
             applyTranslation(of: recognizer)
         case .changed:
@@ -165,7 +170,6 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
                 let spacing = state.viewport.spacing
                 if spacing <= state.zoomLimits.minimumSpacing + 1e-9 || spacing >= state.zoomLimits.maximumSpacing - 1e-9 {
                     impactRigid.impactOccurred()
-                    AudioServicesPlaySystemSound(Sound.nope)
                     didFireZoomLimitHaptic = true
                 }
             }
@@ -179,14 +183,14 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
         switch recognizer.state {
         case .began:
             stopAllAnimations()
-            impactMedium.impactOccurred()
-            AudioServicesPlaySystemSound(Sound.pop)
+            impactLight.impactOccurred()
             state.updateCrosshair(x: location.x, y: location.y)
         case .changed:
             state.updateCrosshair(x: location.x, y: location.y)
         default:
-            impactSoft.impactOccurred()
-            AudioServicesPlaySystemSound(Sound.peek)
+            // No haptic on release: `CrosshairLayer`'s `.sensoryFeedback(.selection)` already ticked
+            // for every candle the finger crossed, and iOS's own long-press interactions (reordering,
+            // context menus) don't add a second cue just for lifting the finger.
             state.clearCrosshair()
         }
     }
@@ -195,7 +199,6 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
         guard recognizer.state == .ended else { return }
         stopAllAnimations()
         impactMedium.impactOccurred()
-        AudioServicesPlaySystemSound(Sound.pop)
         state.animatedResetZoom()
     }
 
@@ -220,29 +223,45 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
 
     private func startMomentum(velocity: Double) {
         momentumVelocity = velocity
-        firedEdgeHaptic = false
         lastMomentumTimestamp = CACurrentMediaTime()
-        let link = CADisplayLink(target: self, selector: #selector(stepMomentum(_:)))
         // ProMotion devices also need CADisableMinimumFrameDurationOnPhone in the app's Info.plist.
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
-        link.add(to: .main, forMode: .common)
-        momentumDisplayLink = link
+        momentumDisplayLink = DisplayLinkProxy.scheduled(target: self) { coordinator, link in
+            coordinator.stepMomentum(link)
+        }
     }
 
-    @objc private func stepMomentum(_ link: CADisplayLink) {
+    private func stepMomentum(_ link: CADisplayLink) {
         // targetTimestamp = when this frame appears on screen; computing physics to that moment
         // removes the one-frame display lag that link.timestamp-based calculations carry.
         let now = link.targetTimestamp
         let elapsed = min(max(now - lastMomentumTimestamp, 0), 1.0 / 30)
         lastMomentumTimestamp = now
         momentumVelocity *= pow(Self.decelerationPerMillisecond, elapsed * 1_000)
-        let hitEdge = state.pan(byPoints: momentumVelocity * elapsed)
-        if hitEdge && !firedEdgeHaptic {
-            impactLight.impactOccurred()
-            AudioServicesPlaySystemSound(Sound.peek)
-            firedEdgeHaptic = true
+
+        if UIAccessibility.isReduceMotionEnabled {
+            // Direct-manipulation momentum itself isn't a Reduce Motion concern — UIScrollView
+            // keeps flinging regardless of the setting — but the bounce below is an unforced
+            // extra motion, so skip straight to the old hard stop at the boundary.
+            let hitEdge = state.pan(byPoints: momentumVelocity * elapsed)
+            if hitEdge || abs(momentumVelocity) < Self.stopVelocity {
+                stopMomentum()
+            }
+            return
         }
-        if hitEdge || abs(momentumVelocity) < Self.stopVelocity {
+
+        // Let the fling carry slightly past the edge, with the same resistance a manual drag gets,
+        // then hand off to the spring the moment it does. A flick that reached the newest or oldest
+        // candle used to stop dead here — every other place this file touches the data edge gives
+        // some kind of "soft wall" (release-in-overscroll, the pinch zoom limit); this was the one
+        // spot that didn't, and it read as a glitch rather than a boundary.
+        let plotWidth = Double(hostView?.bounds.width ?? 375)
+        let overscrolling = state.panForDrag(byPoints: momentumVelocity * elapsed, plotWidth: plotWidth)
+        if overscrolling {
+            stopMomentum()
+            startSpringBack()
+            return
+        }
+        if abs(momentumVelocity) < Self.stopVelocity {
             stopMomentum()
         }
     }
@@ -258,17 +277,23 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
 
     private func startSpringBack() {
         stopSpring()
+
+        // Reduce Motion: land on the boundary immediately rather than overshoot-and-settle.
+        if UIAccessibility.isReduceMotionEnabled {
+            state.snapToClamped()
+            return
+        }
+
         state.isRubberBanding = true  // keep makeFrame from clamping during spring-back
         springTargetRightEdge = state.clampedRightEdge()
         springEdgeVelocity = 0
         lastSpringTimestamp = CACurrentMediaTime()
-        let link = CADisplayLink(target: self, selector: #selector(stepSpringBack(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
-        link.add(to: .main, forMode: .common)
-        springDisplayLink = link
+        springDisplayLink = DisplayLinkProxy.scheduled(target: self) { coordinator, link in
+            coordinator.stepSpringBack(link)
+        }
     }
 
-    @objc private func stepSpringBack(_ link: CADisplayLink) {
+    private func stepSpringBack(_ link: CADisplayLink) {
         let now = link.targetTimestamp
         let elapsed = min(max(now - lastSpringTimestamp, 0), 1.0 / 30)
         lastSpringTimestamp = now
