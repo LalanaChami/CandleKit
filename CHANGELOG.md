@@ -6,6 +6,48 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Performance — second pass (scrolling, zooming, appear animation)
+
+Follow-up after the first pass didn't resolve the reported lag. See `docs/PERFORMANCE.md` for the
+ranked hypothesis list, what's still open, and — more importantly — the Instruments recipe. None of
+the below is measured; that document explains why measuring is now the priority over further
+blind fixes.
+
+- **The whole chart re-rendered on every animation frame.** `CandlestickChart.body` read
+  `state.revision` at the top, so each bump — one per frame during a pan, fling or pinch, up to 120
+  a second — invalidated the entire body: the header (which reformats a row of prices), the
+  accessibility summary, the `UIViewRepresentable` gesture host, and the ZStack layout. Almost none
+  of that changes when the viewport moves. `revision` is now read only by a new private
+  `ChartContentLayer`, the one view that genuinely must repaint per frame. This is the largest
+  single change in this pass and the most likely explanation for lag that survived the first round.
+- **Accessibility strings were built on every frame.** `ChartAccessibility.summary` formats two
+  dates and two numbers; date formatting is among the most expensive operations in Foundation, and
+  this ran on every frame of every scroll to produce a string only VoiceOver reads. It's now
+  attached only when `accessibilityVoiceOverEnabled` is true — and when VoiceOver *is* running
+  there's no 120 Hz flinging to protect, so it stays fully accurate.
+- **Appear animation issued a draw call per candle.** `drawAnimatedCandles` copied the
+  `GraphicsContext` and issued two or three fills for every visible candle, every frame — over a
+  thousand draw calls per frame at wide zoom, which is exactly why the animation stuttered worst
+  when the most candles were on screen. Candles are now grouped into 8 quantised opacity buckets
+  and drawn as batched paths, capping it at a couple of dozen fills. The fade zone spans only a few
+  candles, so the quantisation isn't visible.
+- **Axis labels ran `FormatStyle` inside the draw closure.** Every price and time label was
+  re-formatted on every frame. Label strings are now built once in `makeFrame`, cached against the
+  ticks that produced them (so panning, where tick values usually don't change at all, skips the
+  work entirely), and passed to the renderer pre-formatted. The renderer no longer calls
+  `ChartFormat` at all.
+- **The crosshair Canvas re-rasterised even when idle.** `CrosshairLayer` always created a `Canvas`
+  whose draw closure returned immediately when no crosshair was showing — but the Canvas itself
+  still re-rendered every frame. It now produces no view at all when idle, and reads `revision`
+  only while a crosshair is actually up.
+
+### Added
+
+- `docs/PERFORMANCE.md`: ranked hypotheses, the two known-remaining costs with concrete options for
+  each, and a step-by-step Instruments recipe.
+
+## Earlier unreleased work
+
 Fixes from a pass looking specifically for memory leaks, hangs, and scrolling/animation smoothness,
 prompted by reports that panning and animations didn't feel smooth. See `docs/ROADMAP.md` for the
 full list of what's still open, and the "Verification" note at the end of this entry for what has

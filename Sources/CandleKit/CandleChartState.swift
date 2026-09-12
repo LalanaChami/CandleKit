@@ -72,6 +72,23 @@ public final class CandleChartState {
     @ObservationIgnored private var cachedAnimationFrame: ChartFrame?
     @ObservationIgnored private var cachedAnimationSize: CGSize = .zero
 
+    /// The most recently rendered frame. Read by `CrosshairLayer` and the accessibility modifier so
+    /// they don't each have to depend on `revision` (and therefore re-render on every scroll frame)
+    /// just to know where things are. Not observed: whoever reads it is already being re-rendered
+    /// for its own reasons.
+    @ObservationIgnored private(set) var currentFrame: ChartFrame?
+
+    // Axis label strings are cached against the ticks that produced them. Number and date
+    // formatting is expensive enough to matter when it runs for every label on every frame, and
+    // while panning the tick values usually don't change at all from one frame to the next.
+    @ObservationIgnored private var cachedPriceTicks: PriceTicks?
+    @ObservationIgnored private var cachedPriceTickLabels: [String] = []
+    @ObservationIgnored private var cachedTimeTicks: [TimeTick] = []
+    @ObservationIgnored private var cachedTimeTickLabels: [String] = []
+    @ObservationIgnored private var cachedLastPrice: Double?
+    @ObservationIgnored private var cachedLastPriceDigits: Int = -1
+    @ObservationIgnored private var cachedLastPriceLabel: String?
+
     @ObservationIgnored private var springDisplayLink: CADisplayLink?
     @ObservationIgnored private var springTargetViewport: Viewport?
     @ObservationIgnored private var springRightEdgeVelocity: Double = 0
@@ -387,6 +404,7 @@ public final class CandleChartState {
         // makeFrame's heavy computation does not affect what the animation draws.
         if appearPhase < 1.0, change == .unchanged,
            let cached = cachedAnimationFrame, cachedAnimationSize == size {
+            currentFrame = cached
             return cached
         }
 
@@ -434,6 +452,42 @@ public final class CandleChartState {
             interval: cachedInterval
         )
 
+        // --- Axis label strings -------------------------------------------------------------
+        // Formatted here, on the main actor, once per change — not inside the Canvas closure on
+        // every frame. While panning, the tick values are usually identical frame to frame, so
+        // these cache hits skip the formatting entirely.
+        let priceTickLabels: [String]
+        if let cachedPriceTicks, cachedPriceTicks == priceTicks {
+            priceTickLabels = cachedPriceTickLabels
+        } else {
+            let digits = priceTicks.fractionDigits
+            priceTickLabels = priceTicks.values.map { ChartFormat.price($0, digits: digits) }
+            cachedPriceTicks = priceTicks
+            cachedPriceTickLabels = priceTickLabels
+        }
+
+        let baseUnit = TimeScale.baseUnit(forInterval: cachedInterval)
+        let timeTickLabels: [String]
+        if cachedTimeTicks == timeTicks {
+            timeTickLabels = cachedTimeTickLabels
+        } else {
+            timeTickLabels = timeTicks.map { ChartFormat.axisTime($0.date, unit: $0.unit) }
+            cachedTimeTicks = timeTicks
+            cachedTimeTickLabels = timeTickLabels
+        }
+
+        let resolvedDigits = fractionDigits ?? PriceScale.suggestedFractionDigits(forPrice: newCandles.last?.close ?? 0)
+        let lastClose = newCandles.last?.close
+        let lastPriceLabel: String?
+        if lastClose == cachedLastPrice, resolvedDigits == cachedLastPriceDigits {
+            lastPriceLabel = cachedLastPriceLabel
+        } else {
+            lastPriceLabel = lastClose.map { ChartFormat.price($0, digits: resolvedDigits) }
+            cachedLastPrice = lastClose
+            cachedLastPriceDigits = resolvedDigits
+            cachedLastPriceLabel = lastPriceLabel
+        }
+
         let frame = ChartFrame(
             candles: newCandles,
             layout: layout,
@@ -441,13 +495,16 @@ public final class CandleChartState {
             visible: visible,
             priceScale: priceScale,
             priceTicks: priceTicks,
-            priceFractionDigits: fractionDigits ?? PriceScale.suggestedFractionDigits(forPrice: newCandles.last?.close ?? 0),
+            priceFractionDigits: resolvedDigits,
             timeTicks: timeTicks,
-            baseTimeUnit: TimeScale.baseUnit(forInterval: cachedInterval),
+            baseTimeUnit: baseUnit,
             interval: cachedInterval,
             volumeMax: volumeMax,
             indicators: indicators,
-            indicatorSeries: series
+            indicatorSeries: series,
+            priceTickLabels: priceTickLabels,
+            timeTickLabels: timeTickLabels,
+            lastPriceLabel: lastPriceLabel
         )
 
         // Store this frame so subsequent animation ticks can return immediately without recomputing.
@@ -456,6 +513,7 @@ public final class CandleChartState {
             cachedAnimationSize  = size
         }
 
+        currentFrame = frame
         return frame
     }
 

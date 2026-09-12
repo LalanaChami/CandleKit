@@ -24,6 +24,10 @@ struct BaseLayerRenderer {
     /// 0 = all candles hidden (start of appear animation), 1 = fully visible (steady state).
     let appearPhase: Double
 
+    /// Number of quantised opacity levels used by the appear animation. Bucket 0 is invisible, so
+    /// this gives 7 visible steps across a fade zone only a couple of candles wide.
+    private static let appearBucketCount = 8
+
     func draw(in context: inout GraphicsContext) {
         var plotContext = context
         plotContext.clip(to: Path(frame.layout.plot))
@@ -164,11 +168,17 @@ struct BaseLayerRenderer {
     }
 
     /// Appear-animation path. A reveal line sweeps left-to-right across the plot at constant
-    /// speed (pixels/second, not index-fraction), so every candle gets the same exposure time
+    /// speed (points/second, not index-fraction), so every candle gets the same exposure time
     /// regardless of how many are on screen or how far the user has zoomed in. Each candle fades
-    /// in over a zone equal to 2.5 candle slots wide, giving a soft leading edge on the wave.
-    /// Per-candle draw calls are acceptable because the animation runs for only ~0.5 s;
-    /// `drawCandles` resumes its batched path approach once `appearPhase` reaches 1.0.
+    /// in over a zone 2.5 candle slots wide, giving a soft leading edge on the wave.
+    ///
+    /// Candles are grouped into a small number of opacity buckets rather than drawn one at a time.
+    /// The original version copied the `GraphicsContext` per candle and issued two or three fills
+    /// for each — with several hundred candles on screen that's well over a thousand draw calls and
+    /// as many context copies *per frame*, which is why the animation stuttered on exactly the wide
+    /// zoom levels where it should have looked best. Quantising opacity into `appearBucketCount`
+    /// steps caps it at a couple of dozen fills instead. The fade zone only ever spans a few candles,
+    /// so the banding this introduces isn't visible.
     private func drawAnimatedCandles(in context: inout GraphicsContext) {
         guard !frame.visible.isEmpty else { return }
 
@@ -183,13 +193,20 @@ struct BaseLayerRenderer {
         let fadeZone = max(12.0, frame.viewport.spacing * 2.5)
         let revealX  = (plotMinX - fadeZone) + appearPhase * (plotMaxX - plotMinX + 2 * fadeZone)
 
-        for index in frame.visible {
-            let cx      = frame.centerX(ofCandle: index)
-            let opacity = max(0, min(1, (revealX - cx) / fadeZone))
-            guard opacity > 0 else { continue }
+        let buckets = Self.appearBucketCount
+        let topBucket = Double(buckets - 1)
+        var risingWicks   = [Path](repeating: Path(), count: buckets)
+        var fallingWicks  = [Path](repeating: Path(), count: buckets)
+        var risingBodies  = [Path](repeating: Path(), count: buckets)
+        var fallingBodies = [Path](repeating: Path(), count: buckets)
+        var hollowBodies  = [Path](repeating: Path(), count: buckets)
 
-            var localContext = context
-            localContext.opacity *= opacity
+        for index in frame.visible {
+            let cx = Double(frame.centerX(ofCandle: index))
+            let opacity = max(0, min(1, (revealX - cx) / fadeZone))
+            // Bucket 0 is fully transparent, so skipping it also skips candles not yet revealed.
+            let bucket = Int((opacity * topBucket).rounded())
+            guard bucket > 0 else { continue }
 
             let candle   = frame.candles[index]
             let bodyLeft = bodyLeftInPixels(index, bodyWidth: bodyWidth)
@@ -203,26 +220,42 @@ struct BaseLayerRenderer {
             let bodyTop = min(openY, closeY)
             let bodyH   = max(abs(openY - closeY), pixels.hairline)
             let body    = CGRect(x: bodyLeft / scale, y: bodyTop, width: bodyWidth / scale, height: bodyH)
-            let color   = candle.isBullish ? style.upColor : style.downColor
 
             if candle.isBullish && style.hollowUpCandles && drawsBodies {
-                var wickPath = Path()
-                wickPath.addRect(CGRect(x: wickX, y: highY,     width: wickPts, height: max(0, bodyTop - highY)))
-                wickPath.addRect(CGRect(x: wickX, y: body.maxY, width: wickPts, height: max(0, lowY - body.maxY)))
-                localContext.fill(wickPath, with: .color(color))
-                localContext.stroke(
-                    Path(body.insetBy(dx: wickPts / 2, dy: min(wickPts / 2, bodyH / 2))),
-                    with: .color(color),
-                    lineWidth: wickWidth / scale
-                )
+                risingWicks[bucket].addRect(CGRect(x: wickX, y: highY, width: wickPts, height: max(0, bodyTop - highY)))
+                risingWicks[bucket].addRect(CGRect(x: wickX, y: body.maxY, width: wickPts, height: max(0, lowY - body.maxY)))
+                hollowBodies[bucket].addRect(body.insetBy(dx: wickPts / 2, dy: min(wickPts / 2, bodyH / 2)))
             } else {
-                localContext.fill(
-                    Path(CGRect(x: wickX, y: highY, width: wickPts, height: max(lowY - highY, pixels.hairline))),
-                    with: .color(color)
-                )
-                if drawsBodies {
-                    localContext.fill(Path(body), with: .color(color))
+                let wick = CGRect(x: wickX, y: highY, width: wickPts, height: max(lowY - highY, pixels.hairline))
+                if candle.isBullish {
+                    risingWicks[bucket].addRect(wick)
+                    if drawsBodies { risingBodies[bucket].addRect(body) }
+                } else {
+                    fallingWicks[bucket].addRect(wick)
+                    if drawsBodies { fallingBodies[bucket].addRect(body) }
                 }
+            }
+        }
+
+        for bucket in 1..<buckets {
+            let opacity = Double(bucket) / topBucket
+            var bucketContext = context
+            bucketContext.opacity *= opacity
+
+            if !risingWicks[bucket].isEmpty {
+                bucketContext.fill(risingWicks[bucket], with: .color(style.upColor))
+            }
+            if !fallingWicks[bucket].isEmpty {
+                bucketContext.fill(fallingWicks[bucket], with: .color(style.downColor))
+            }
+            if !risingBodies[bucket].isEmpty {
+                bucketContext.fill(risingBodies[bucket], with: .color(style.upColor))
+            }
+            if !fallingBodies[bucket].isEmpty {
+                bucketContext.fill(fallingBodies[bucket], with: .color(style.downColor))
+            }
+            if !hollowBodies[bucket].isEmpty {
+                bucketContext.stroke(hollowBodies[bucket], with: .color(style.upColor), lineWidth: wickWidth / scale)
             }
         }
     }
@@ -278,19 +311,19 @@ struct BaseLayerRenderer {
         border.addLine(to: CGPoint(x: layout.priceAxis.maxX, y: borderY))
         context.stroke(border, with: .color(style.gridColor), lineWidth: pixels.hairline)
 
-        let tickDigits = frame.priceTicks.fractionDigits
-        for price in frame.priceTicks.values {
+        // Labels are pre-formatted in makeFrame; this loop must not call any FormatStyle.
+        for (price, label) in zip(frame.priceTicks.values, frame.priceTickLabels) {
             let y = frame.y(forPrice: price)
             guard y > layout.plot.minY + 6, y < layout.plot.maxY - 6 else { continue }
             context.draw(
-                ChartText.label(ChartFormat.price(price, digits: tickDigits), color: style.axisLabelColor),
+                ChartText.label(label, color: style.axisLabelColor),
                 at: CGPoint(x: layout.priceAxis.minX + 6, y: y),
                 anchor: .leading
             )
         }
 
         let timeFadeZone = 48.0
-        for tick in frame.timeTicks {
+        for (tick, label) in zip(frame.timeTicks, frame.timeTickLabels) {
             let x = frame.centerX(ofCandle: tick.index)
             let minX = layout.timeAxis.minX
             let maxX = layout.timeAxis.maxX
@@ -300,7 +333,7 @@ struct BaseLayerRenderer {
             labelContext.opacity *= opacity
             labelContext.draw(
                 ChartText.label(
-                    ChartFormat.axisTime(tick.date, unit: tick.unit),
+                    label,
                     color: style.axisLabelColor,
                     emphasized: tick.unit > frame.baseTimeUnit
                 ),
@@ -309,11 +342,11 @@ struct BaseLayerRenderer {
             )
         }
 
-        if let last = frame.candles.last {
+        if let last = frame.candles.last, let lastPriceLabel = frame.lastPriceLabel {
             let y = frame.y(forPrice: last.close)
             if y >= layout.plot.minY && y <= layout.plot.maxY {
                 ChartText.drawPriceTag(
-                    ChartFormat.price(last.close, digits: frame.priceFractionDigits),
+                    lastPriceLabel,
                     y: y,
                     in: layout.priceAxis,
                     background: last.isBullish ? style.upColor : style.downColor,

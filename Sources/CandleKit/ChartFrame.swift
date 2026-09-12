@@ -51,6 +51,15 @@ struct ChartFrame {
     let volumeMax: Double
     let indicators: [ChartIndicator]
     let indicatorSeries: [[Double?]]
+    /// Pre-formatted axis labels, parallel to `priceTicks.values` and `timeTicks`.
+    ///
+    /// Formatting happens once per change in `CandleChartState.makeFrame`, not inside the Canvas
+    /// closure. Number and date formatting is expensive, and the renderer runs on every frame of
+    /// every scroll while these values usually stay put.
+    let priceTickLabels: [String]
+    let timeTickLabels: [String]
+    /// Label for the last-price tag, or `nil` when there's no data.
+    let lastPriceLabel: String?
 
     var plotWidth: Double { Double(layout.plot.width) }
 

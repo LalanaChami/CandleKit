@@ -19,6 +19,7 @@ public struct CandlestickChart: View {
     @State private var internalState = CandleChartState()
     @ScaledMetric(relativeTo: .caption2) private var priceAxisWidth: CGFloat = 64
     @ScaledMetric(relativeTo: .caption2) private var timeAxisHeight: CGFloat = 24
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
 
     private var style = CandleChartStyle.standard
     private var indicators: [ChartIndicator] = []
@@ -36,11 +37,18 @@ public struct CandlestickChart: View {
         self.externalState = state
     }
 
+    // Deliberately does NOT read `state.revision`.
+    //
+    // It used to, which meant a single `revision` bump — one per animation frame during a pan,
+    // a fling or a pinch, up to 120 times a second — invalidated this entire body: the header
+    // (which reformats a row of prices), the accessibility summary (which formats two dates and
+    // two numbers), the gesture representable, and the ZStack layout. Almost none of that
+    // actually changes when the viewport moves.
+    //
+    // `revision` is now read only by `ChartContentLayer`, the one view that genuinely has to
+    // redraw per frame. Everything here re-evaluates only when its own inputs change.
     public var body: some View {
         let state = externalState ?? internalState
-        // Reading `revision` subscribes this view to viewport changes. Crosshair state is deliberately
-        // not read here, so the candle layer doesn't redraw while a finger moves.
-        let _ = state.revision
         let _ = state.setHandlers(crosshair: crosshairHandler, oldestCandle: oldestCandleHandler)
         let headerDigits = fractionDigits ?? PriceScale.suggestedFractionDigits(forPrice: candles.last?.close ?? 0)
 
@@ -50,24 +58,84 @@ public struct CandlestickChart: View {
             }
 
             GeometryReader { proxy in
-                let frame = state.makeFrame(
-                    candles: candles,
-                    indicators: indicators,
-                    size: proxy.size,
-                    metrics: ChartMetrics(priceAxisWidth: priceAxisWidth, timeAxisHeight: timeAxisHeight),
-                    showsVolume: showsVolume,
-                    fractionDigits: fractionDigits
-                )
+                let metrics = ChartMetrics(priceAxisWidth: priceAxisWidth, timeAxisHeight: timeAxisHeight)
+                // The layout depends only on the size and the metrics, never on the viewport, so the
+                // gesture view can be positioned without waiting on a rendered ChartFrame.
+                let layout = ChartLayout(size: proxy.size, metrics: metrics, showsVolume: showsVolume)
 
                 ZStack(alignment: .topLeading) {
-                    ChartBaseLayer(frame: frame, style: style, appearPhase: state.appearPhase)
-                    CrosshairLayer(state: state, frame: frame, style: style)
+                    ChartContentLayer(
+                        state: state,
+                        candles: candles,
+                        indicators: indicators,
+                        size: proxy.size,
+                        metrics: metrics,
+                        showsVolume: showsVolume,
+                        fractionDigits: fractionDigits,
+                        style: style
+                    )
+                    CrosshairLayer(state: state, style: style)
                     ChartGestureView(state: state)
-                        .frame(width: frame.layout.plot.width, height: frame.layout.plot.height)
-                        .position(x: frame.layout.plot.midX, y: frame.layout.plot.midY)
+                        .frame(width: layout.plot.width, height: layout.plot.height)
+                        .position(x: layout.plot.midX, y: layout.plot.midY)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("Candlestick chart"))
+                .modifier(ChartAccessibilityDetails(state: state, isActive: voiceOverEnabled))
+            }
+        }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        // Stops any in-flight appear or spring animation the moment this chart leaves the view
+        // hierarchy — a `List` row scrolling away mid-animation, a sheet being dismissed, a
+        // NavigationStack pop — so its CADisplayLink isn't left running in the background.
+        .onDisappear { state.stopAnimations() }
+    }
+}
+
+/// The only view that re-renders on every animation frame.
+///
+/// Isolating it means a `revision` bump repaints the candle Canvas and nothing else. Its own stored
+/// inputs (the candle array, the indicator list, the size) don't change between frames of a scroll,
+/// so SwiftUI won't re-run this body for any reason other than the `revision` read below.
+private struct ChartContentLayer: View {
+    let state: CandleChartState
+    let candles: [Candle]
+    let indicators: [ChartIndicator]
+    let size: CGSize
+    let metrics: ChartMetrics
+    let showsVolume: Bool
+    let fractionDigits: Int?
+    let style: CandleChartStyle
+
+    var body: some View {
+        let _ = state.revision
+        let frame = state.makeFrame(
+            candles: candles,
+            indicators: indicators,
+            size: size,
+            metrics: metrics,
+            showsVolume: showsVolume,
+            fractionDigits: fractionDigits
+        )
+        ChartBaseLayer(frame: frame, style: style, appearPhase: state.appearPhase)
+    }
+}
+
+/// Attaches the expensive accessibility descriptions only when VoiceOver is actually running.
+///
+/// `ChartAccessibility.summary` formats two dates and two numbers. Date formatting is one of the
+/// most expensive things Foundation does, and this string was previously rebuilt on every frame of
+/// every scroll for the benefit of a screen reader that usually isn't running. When VoiceOver *is*
+/// running there's no 120 Hz flinging to protect, so the cost stops mattering, and the frame lookup
+/// below reads `revision` to keep the summary current as the chart moves.
+private struct ChartAccessibilityDetails: ViewModifier {
+    let state: CandleChartState
+    let isActive: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isActive, let frame = currentFrame() {
+            content
                 .accessibilityValue(Text(ChartAccessibility.summary(
                     of: frame.candles[frame.visible],
                     digits: frame.priceFractionDigits,
@@ -85,13 +153,14 @@ public struct CandlestickChart: View {
                         break
                     }
                 }
-            }
+        } else {
+            content
         }
-        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-        // Stops any in-flight appear or spring animation the moment this chart leaves the view
-        // hierarchy — a `List` row scrolling away mid-animation, a sheet being dismissed, a
-        // NavigationStack pop — so its CADisplayLink isn't left running in the background.
-        .onDisappear { state.stopAnimations() }
+    }
+
+    private func currentFrame() -> ChartFrame? {
+        _ = state.revision
+        return state.currentFrame
     }
 }
 
