@@ -71,6 +71,58 @@ public enum PriceScale {
         return (low - padding)...(high + padding)
     }
 
+    /// The value range covering every visible point of a set of indicator series.
+    ///
+    /// Used for indicator panes, which scale to their own values rather than to price. `required`
+    /// is folded in unpadded so a pinned range — RSI's 0...100 — stays exactly that rather than
+    /// drifting outward by the padding fraction each render.
+    ///
+    /// Returns `nil` when nothing is visible, which the caller should treat as "draw no pane
+    /// content" rather than substituting an arbitrary range.
+    public static func autoRange(
+        forSeries series: [[Double?]],
+        in visible: Range<Int>,
+        required: ClosedRange<Double>? = nil,
+        paddingFraction: Double = 0.1
+    ) -> ClosedRange<Double>? {
+        var low = Double.infinity
+        var high = -Double.infinity
+
+        for values in series {
+            let range = visible.clamped(to: 0..<values.count)
+            for index in range {
+                guard let value = values[index], value.isFinite else { continue }
+                low = min(low, value)
+                high = max(high, value)
+            }
+        }
+
+        if low.isFinite, high.isFinite, low <= high {
+            if high == low {
+                let padding = abs(high) * 0.01
+                let safePadding = padding > 0 ? padding : 1
+                low -= safePadding
+                high += safePadding
+            } else {
+                let padding = (high - low) * paddingFraction
+                low -= padding
+                high += padding
+            }
+        } else if required == nil {
+            return nil
+        } else {
+            low = .infinity
+            high = -.infinity
+        }
+
+        if let required {
+            low = min(low, required.lowerBound)
+            high = max(high, required.upperBound)
+        }
+        guard low.isFinite, high.isFinite, low < high else { return nil }
+        return low...high
+    }
+
     /// Tick values at multiples of 1, 2 or 5 × 10ⁿ, targeting roughly `approximateCount` ticks.
     public static func niceTicks(in range: ClosedRange<Double>, approximateCount: Int) -> PriceTicks {
         let span = range.upperBound - range.lowerBound

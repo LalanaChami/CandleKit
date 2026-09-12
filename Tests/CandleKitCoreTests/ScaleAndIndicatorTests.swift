@@ -59,6 +59,55 @@ struct PriceScaleTests {
         #expect(PriceScale.autoRange(for: [], in: 0..<10) == nil)
     }
 
+    @Test func seriesAutoRangeCoversEveryVisiblePoint() throws {
+        let series: [[Double?]] = [[1, 5, nil, 3], [nil, 2, 9, nil]]
+        let range = try #require(PriceScale.autoRange(forSeries: series, in: 0..<4, paddingFraction: 0))
+        #expect(range == 1...9)
+    }
+
+    @Test func seriesAutoRangeIgnoresValuesOutsideTheVisibleWindow() throws {
+        let series: [[Double?]] = [[100, 1, 2, 3, 100]]
+        let range = try #require(PriceScale.autoRange(forSeries: series, in: 1..<4, paddingFraction: 0))
+        #expect(range == 1...3)
+    }
+
+    /// A pinned range must stay exactly pinned. Padding it each render would let RSI's 0...100
+    /// creep outward frame after frame.
+    @Test func seriesAutoRangeHonoursARequiredRange() throws {
+        let series: [[Double?]] = [[45, 55]]
+        let range = try #require(
+            PriceScale.autoRange(forSeries: series, in: 0..<2, required: 0...100)
+        )
+        #expect(range.lowerBound <= 0)
+        #expect(range.upperBound >= 100)
+
+        // Values outside the required range still widen it.
+        let wide = try #require(
+            PriceScale.autoRange(forSeries: [[-20, 130]], in: 0..<2, required: 0...100, paddingFraction: 0)
+        )
+        #expect(wide == -20...130)
+    }
+
+    @Test func seriesAutoRangeHandlesNoVisibleValues() {
+        #expect(PriceScale.autoRange(forSeries: [], in: 0..<5) == nil)
+        #expect(PriceScale.autoRange(forSeries: [[nil, nil]], in: 0..<2) == nil)
+        #expect(PriceScale.autoRange(forSeries: [[1, 2]], in: 5..<9) == nil)
+        // With a required range there is still something to draw against.
+        #expect(PriceScale.autoRange(forSeries: [[nil, nil]], in: 0..<2, required: 0...100) == 0...100)
+    }
+
+    @Test func seriesAutoRangePadsFlatSeries() throws {
+        let range = try #require(PriceScale.autoRange(forSeries: [[7, 7, 7]], in: 0..<3))
+        #expect(range.lowerBound < 7 && range.upperBound > 7)
+    }
+
+    @Test func seriesAutoRangeSkipsNonFiniteValues() throws {
+        let range = try #require(
+            PriceScale.autoRange(forSeries: [[1, .nan, 3, .infinity]], in: 0..<4, paddingFraction: 0)
+        )
+        #expect(range == 1...3)
+    }
+
     @Test func linearScaleMapsInvertedRanges() {
         let scale = LinearScale(domain: 0...100, rangeStart: 200, rangeEnd: 0)
         #expect(scale.map(25) == 150)

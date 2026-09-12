@@ -411,7 +411,19 @@ public final class CandleChartState {
         showsVolume: Bool,
         fractionDigits: Int?
     ) -> ChartFrame {
-        let layout = ChartLayout(size: size, metrics: metrics, showsVolume: showsVolume)
+        // Panes have to be decided before the layout, because they determine how much vertical
+        // space the price pane is left with.
+        let activeIndicators = indicators.filter(\.isVisible)
+        let paneRequests: [(id: String, height: CGFloat)] = activeIndicators.compactMap { indicator in
+            guard case let .separate(preferredHeight) = indicator.indicator.pane else { return nil }
+            return (indicator.id, CGFloat(preferredHeight))
+        }
+        let layout = ChartLayout(
+            size: size,
+            metrics: metrics,
+            showsVolume: showsVolume,
+            indicatorPaneHeights: paneRequests
+        )
         plotWidth = Double(layout.plot.width)
 
         let change = SeriesChange.between(summary, newCandles)
@@ -452,7 +464,6 @@ public final class CandleChartState {
         }
 
         // Only visible indicators are computed; hiding one in a settings UI should stop paying for it.
-        let activeIndicators = indicators.filter(\.isVisible)
         let results = indicatorCache.results(for: activeIndicators.map(\.indicator), candles: newCandles)
         let resolved = zip(activeIndicators, results).map { chartIndicator, result in
             ResolvedIndicator(
@@ -473,8 +484,9 @@ public final class CandleChartState {
         // with `return nil` as one branch of a multi-statement closure nested inside an unannotated
         // `flatMap` there's nothing left for the compiler to anchor inference on. A loop is also
         // easier to read here than three chained transforms.
+        let priceOverlays = resolved.filter { $0.pane == .price }
         var priceOverlaySeries: [[Double?]] = []
-        for indicator in resolved where indicator.pane == .price {
+        for indicator in priceOverlays {
             for plot in indicator.result.plots {
                 if case .hidden = plot.style { continue }
                 priceOverlaySeries.append(plot.values)
@@ -522,6 +534,49 @@ public final class CandleChartState {
         // Formatted here, on the main actor, once per change — not inside the Canvas closure on
         // every frame. While panning, the tick values are usually identical frame to frame, so
         // these cache hits skip the formatting entirely.
+        // One pane per separate-pane indicator, in the order they were added, each autoscaled to
+        // its own values rather than to price.
+        var resolvedPanes: [ResolvedPane] = []
+        for paneLayout in layout.indicatorPanes {
+            guard let indicator = resolved.first(where: { $0.id == paneLayout.id }) else { continue }
+            var series: [[Double?]] = []
+            for plot in indicator.result.plots {
+                if case .hidden = plot.style { continue }
+                series.append(plot.values)
+            }
+            // Reference levels must stay on screen — an RSI pane that scrolled its 70 line out of
+            // view would be useless — so they widen the range alongside any pinned preferredRange.
+            var required = indicator.result.preferredRange
+            for level in indicator.result.levels {
+                if let existing = required {
+                    required = min(existing.lowerBound, level.value)...max(existing.upperBound, level.value)
+                } else {
+                    required = level.value...level.value
+                }
+            }
+            guard let range = PriceScale.autoRange(forSeries: series, in: visible, required: required) else {
+                continue
+            }
+            let scale = LinearScale(
+                domain: range,
+                rangeStart: Double(paneLayout.valueBand.upperBound),
+                rangeEnd: Double(paneLayout.valueBand.lowerBound)
+            )
+            let bandHeight = Double(paneLayout.valueBand.upperBound - paneLayout.valueBand.lowerBound)
+            let ticks = PriceScale.niceTicks(
+                in: range,
+                approximateCount: max(2, Int(bandHeight / metrics.paneTickSpacing))
+            )
+            let digits = ticks.fractionDigits
+            resolvedPanes.append(ResolvedPane(
+                layout: paneLayout,
+                indicators: [indicator],
+                scale: scale,
+                ticks: ticks,
+                tickLabels: ticks.values.map { ChartFormat.price($0, digits: digits) }
+            ))
+        }
+
         let labels = ChartPerformance.measure(.labels) {
             buildLabels(
                 priceTicks: priceTicks,
@@ -543,7 +598,8 @@ public final class CandleChartState {
             baseTimeUnit: labels.baseUnit,
             interval: cachedInterval,
             volumeMax: volumeMax,
-            indicators: resolved,
+            indicators: priceOverlays,
+            panes: resolvedPanes,
             priceTickLabels: labels.priceLabels,
             timeTickLabels: labels.timeLabels,
             lastPriceLabel: labels.lastPrice

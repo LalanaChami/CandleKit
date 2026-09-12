@@ -6,6 +6,50 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added — indicator panes (Phase 5.3)
+
+RSI, MACD, Stochastic, ATR and OBV now actually draw. They were computed and cached since the
+previous change but skipped by the renderer, because plotting 0–100 values against a price scale
+would have been worse than plotting nothing. This closes that gap.
+
+- **Stacked panes below the candles**, one per separate-pane indicator, each autoscaled to its own
+  values with its own grid, value axis and title.
+- **The price pane keeps what's left**, and indicator panes are capped at 60% of the content height
+  no matter how many are added or how tall each asks to be — otherwise four indicators squeeze the
+  candles into a sliver, which is the one thing the user is actually looking at.
+- **Reference levels widen a pane's range**, so RSI's 70 line can't scroll off screen when the
+  values are all low. A pinned `preferredRange` (RSI's 0...100) stays exactly pinned rather than
+  drifting outward by the padding fraction on every render.
+- **The crosshair spans every pane** — the candle under your finger lines up with its RSI or MACD
+  value below — while the horizontal line and value tag belong to whichever pane the finger is
+  actually in.
+- **Gestures now cover the whole content area**, so a drag starting on an indicator pane pans the
+  chart instead of doing nothing.
+- Each pane is clipped to itself, so an indicator briefly exceeding its autoscaled range can't bleed
+  into the candles above.
+- The indicator drawing routines are now parameterised on a value mapping rather than reaching for
+  the price scale, which is what lets panes and price overlays share one implementation.
+- New Core helper `PriceScale.autoRange(forSeries:in:required:paddingFraction:)`, with tests.
+- Demo: RSI and MACD toggles under a new "Panes" section on the Market tab.
+
+### Known gaps
+
+Panes aren't resizable or collapsible yet, volume can't move into its own pane, every separate-pane
+indicator gets its own pane rather than being mergeable, and VoiceOver still reads only the price
+rather than each pane's value at the crosshair. Tracked as roadmap task **5.11**.
+
+One cosmetic edge: if an indicator has no visible values at all (fully inside its warm-up period),
+its pane is laid out but left empty rather than collapsed. It reclaims the space as soon as values
+appear.
+
+### Verification
+
+The new Core helper is covered by tests you can run with `swift test`, including the pinned-range
+and no-visible-values cases. Everything else — pane layout, the spanning crosshair, gesture
+coverage — is uncompiled and needs an iOS build and a look on device.
+
+## Earlier unreleased work
+
 ### Changed — rendering layer migrated onto the indicator engine (Phase 5.10)
 
 The engine added in the previous entry is now what the chart actually draws.

@@ -54,6 +54,7 @@ struct BaseLayerRenderer {
             ChartPerformance.measure(.drawIndicators) { drawIndicators(in: &plotContext) }
             drawLastPriceLine(in: &plotContext)
         }
+        ChartPerformance.measure(.drawIndicators) { drawPanes(in: &context) }
         ChartPerformance.measure(.drawAxes) { drawAxes(in: &context) }
     }
 
@@ -266,27 +267,106 @@ struct BaseLayerRenderer {
         }
     }
 
+    /// Where an indicator's values map to on screen. Panes and the price overlay differ only in
+    /// this, so every drawing routine below takes one instead of reaching for the price scale.
+    private struct ValueMapping {
+        let y: (Double) -> CGFloat
+        let plot: CGRect
+    }
+
+    private var priceMapping: ValueMapping {
+        ValueMapping(y: { frame.y(forPrice: $0) }, plot: frame.layout.plot)
+    }
+
     /// Draws every price-pane indicator: fills first so lines sit on top, then reference levels,
     /// then the plots themselves.
-    ///
-    /// Indicators that ask for their own pane are skipped here — panes are roadmap task 5.3, and
-    /// drawing an RSI's 0–100 values against a price scale would be worse than not drawing it.
     private func drawIndicators(in context: inout GraphicsContext) {
-        for indicator in frame.indicators where indicator.pane == .price {
-            drawFills(of: indicator, in: &context)
-            drawLevels(of: indicator, in: &context)
-            for plot in indicator.result.plots {
-                draw(plot, of: indicator, in: &context)
-            }
+        let mapping = priceMapping
+        for indicator in frame.indicators {
+            draw(indicator, using: mapping, in: &context)
         }
     }
 
-    private func draw(_ plot: IndicatorPlot, of indicator: ResolvedIndicator, in context: inout GraphicsContext) {
+    /// Draws each indicator pane: its own grid, separator, contents and value axis.
+    ///
+    /// Every pane is clipped to itself, so an indicator that briefly exceeds its autoscaled range
+    /// can't bleed into the candles above it.
+    func drawPanes(in context: inout GraphicsContext) {
+        for separatorY in frame.layout.separators {
+            var line = Path()
+            let y = pixels.hairlineCenter(separatorY)
+            line.move(to: CGPoint(x: frame.layout.plot.minX, y: y))
+            line.addLine(to: CGPoint(x: frame.layout.priceAxis.maxX, y: y))
+            context.stroke(line, with: .color(style.gridColor), lineWidth: pixels.hairline)
+        }
+
+        for pane in frame.panes {
+            let mapping = ValueMapping(y: { pane.y(forValue: $0) }, plot: pane.layout.plot)
+
+            var paneContext = context
+            paneContext.clip(to: Path(pane.layout.plot))
+            drawPaneGrid(pane, in: &paneContext)
+            for indicator in pane.indicators {
+                draw(indicator, using: mapping, in: &paneContext)
+            }
+
+            drawPaneAxis(pane, in: &context)
+            drawPaneTitle(pane, in: &context)
+        }
+    }
+
+    private func drawPaneGrid(_ pane: ResolvedPane, in context: inout GraphicsContext) {
+        var grid = Path()
+        for value in pane.ticks.values {
+            let y = pixels.hairlineCenter(pane.y(forValue: value))
+            guard y >= pane.layout.plot.minY, y <= pane.layout.plot.maxY else { continue }
+            grid.move(to: CGPoint(x: pane.layout.plot.minX, y: y))
+            grid.addLine(to: CGPoint(x: pane.layout.plot.maxX, y: y))
+        }
+        context.stroke(grid, with: .color(style.gridColor), lineWidth: pixels.hairline)
+    }
+
+    private func drawPaneAxis(_ pane: ResolvedPane, in context: inout GraphicsContext) {
+        for (value, label) in zip(pane.ticks.values, pane.tickLabels) {
+            let y = pane.y(forValue: value)
+            guard y > pane.layout.plot.minY + 5, y < pane.layout.plot.maxY - 5 else { continue }
+            context.draw(
+                ChartText.label(label, color: style.axisLabelColor),
+                at: CGPoint(x: pane.layout.valueAxis.minX + 6, y: y),
+                anchor: .leading
+            )
+        }
+    }
+
+    /// The indicator's name in the pane's top-left corner, so a stack of panes is readable without
+    /// a legend.
+    private func drawPaneTitle(_ pane: ResolvedPane, in context: inout GraphicsContext) {
+        guard let first = pane.indicators.first else { return }
+        context.draw(
+            ChartText.label(first.label, color: style.axisLabelColor, emphasized: true),
+            at: CGPoint(x: pane.layout.plot.minX + 6, y: pane.layout.plot.minY + 4),
+            anchor: .topLeading
+        )
+    }
+
+    private func draw(_ indicator: ResolvedIndicator, using mapping: ValueMapping, in context: inout GraphicsContext) {
+        drawFills(of: indicator, using: mapping, in: &context)
+        drawLevels(of: indicator, using: mapping, in: &context)
+        for plot in indicator.result.plots {
+            draw(plot, of: indicator, using: mapping, in: &context)
+        }
+    }
+
+    private func draw(
+        _ plot: IndicatorPlot,
+        of indicator: ResolvedIndicator,
+        using mapping: ValueMapping,
+        in context: inout GraphicsContext
+    ) {
         switch plot.style {
         case let .line(_, dash):
-            let path = polyline(plot.values)
             context.stroke(
-                path,
+                polyline(plot.values, using: mapping),
                 with: .color(indicator.color(for: plot.colorRole)),
                 style: StrokeStyle(
                     lineWidth: indicator.width(for: plot.style),
@@ -298,16 +378,16 @@ struct BaseLayerRenderer {
 
         case .steppedLine:
             context.stroke(
-                steppedPolyline(plot.values),
+                steppedPolyline(plot.values, using: mapping),
                 with: .color(indicator.color(for: plot.colorRole)),
                 style: StrokeStyle(lineWidth: indicator.width(for: plot.style), lineJoin: .miter)
             )
 
         case let .histogram(baseline):
-            drawHistogram(plot, baseline: baseline, of: indicator, in: &context)
+            drawHistogram(plot, baseline: baseline, of: indicator, using: mapping, in: &context)
 
         case let .points(radius):
-            drawPoints(plot, radius: CGFloat(radius), of: indicator, in: &context)
+            drawPoints(plot, radius: CGFloat(radius), of: indicator, using: mapping, in: &context)
 
         case .hidden:
             break
@@ -316,7 +396,7 @@ struct BaseLayerRenderer {
 
     /// A polyline over `lineRange`, lifting the pen across `nil` gaps so a warm-up period or a
     /// missing value leaves a break rather than a line to nowhere.
-    private func polyline(_ values: [Double?]) -> Path {
+    private func polyline(_ values: [Double?], using mapping: ValueMapping) -> Path {
         var path = Path()
         var penDown = false
         for index in frame.lineRange {
@@ -324,7 +404,7 @@ struct BaseLayerRenderer {
                 penDown = false
                 continue
             }
-            let point = CGPoint(x: frame.centerX(ofCandle: index), y: frame.y(forPrice: value))
+            let point = CGPoint(x: frame.centerX(ofCandle: index), y: mapping.y(value))
             if penDown {
                 path.addLine(to: point)
             } else {
@@ -337,7 +417,7 @@ struct BaseLayerRenderer {
 
     /// Holds each value until the next one, for indicators like SuperTrend whose level is constant
     /// between changes and should not be interpolated.
-    private func steppedPolyline(_ values: [Double?]) -> Path {
+    private func steppedPolyline(_ values: [Double?], using mapping: ValueMapping) -> Path {
         var path = Path()
         var previous: CGPoint?
         for index in frame.lineRange {
@@ -345,7 +425,7 @@ struct BaseLayerRenderer {
                 previous = nil
                 continue
             }
-            let point = CGPoint(x: frame.centerX(ofCandle: index), y: frame.y(forPrice: value))
+            let point = CGPoint(x: frame.centerX(ofCandle: index), y: mapping.y(value))
             if let previous {
                 path.addLine(to: CGPoint(x: point.x, y: previous.y))
                 path.addLine(to: point)
@@ -363,16 +443,17 @@ struct BaseLayerRenderer {
         _ plot: IndicatorPlot,
         baseline: Double,
         of indicator: ResolvedIndicator,
+        using mapping: ValueMapping,
         in context: inout GraphicsContext
     ) {
         let width = max(pixels.hairline, CGFloat(frame.viewport.spacing) * style.bodyWidthRatio)
-        let baselineY = frame.y(forPrice: baseline)
+        let baselineY = mapping.y(baseline)
         var positive = Path()
         var negative = Path()
 
         for index in frame.visible {
             guard index < plot.values.count, let value = plot.values[index], value.isFinite else { continue }
-            let valueY = frame.y(forPrice: value)
+            let valueY = mapping.y(value)
             let top = min(valueY, baselineY)
             let height = max(abs(valueY - baselineY), pixels.hairline)
             let rect = CGRect(x: frame.centerX(ofCandle: index) - width / 2, y: top, width: width, height: height)
@@ -391,12 +472,13 @@ struct BaseLayerRenderer {
         _ plot: IndicatorPlot,
         radius: CGFloat,
         of indicator: ResolvedIndicator,
+        using mapping: ValueMapping,
         in context: inout GraphicsContext
     ) {
         var path = Path()
         for index in frame.visible {
             guard index < plot.values.count, let value = plot.values[index], value.isFinite else { continue }
-            let center = CGPoint(x: frame.centerX(ofCandle: index), y: frame.y(forPrice: value))
+            let center = CGPoint(x: frame.centerX(ofCandle: index), y: mapping.y(value))
             path.addEllipse(in: CGRect(
                 x: center.x - radius, y: center.y - radius,
                 width: radius * 2, height: radius * 2
@@ -410,7 +492,11 @@ struct BaseLayerRenderer {
     /// Built as a single closed path running forward along the upper edge and back along the lower,
     /// restarted wherever either side has a gap so a warm-up period doesn't produce a fill anchored
     /// to nothing.
-    private func drawFills(of indicator: ResolvedIndicator, in context: inout GraphicsContext) {
+    private func drawFills(
+        of indicator: ResolvedIndicator,
+        using mapping: ValueMapping,
+        in context: inout GraphicsContext
+    ) {
         for fill in indicator.result.fills {
             guard let lower = indicator.result.plot(fill.lowerPlotKey)?.values,
                   let upper = indicator.result.plot(fill.upperPlotKey)?.values else { continue }
@@ -440,27 +526,27 @@ struct BaseLayerRenderer {
                 }
                 run.append((
                     x: frame.centerX(ofCandle: index),
-                    lower: frame.y(forPrice: low),
-                    upper: frame.y(forPrice: high)
+                    lower: mapping.y(low),
+                    upper: mapping.y(high)
                 ))
             }
             flush()
 
-            context.fill(
-                path,
-                with: .color(indicator.color(for: fill.colorRole).opacity(fill.opacity))
-            )
+            context.fill(path, with: .color(indicator.color(for: fill.colorRole).opacity(fill.opacity)))
         }
     }
 
-    private func drawLevels(of indicator: ResolvedIndicator, in context: inout GraphicsContext) {
-        let plot = frame.layout.plot
+    private func drawLevels(
+        of indicator: ResolvedIndicator,
+        using mapping: ValueMapping,
+        in context: inout GraphicsContext
+    ) {
         for level in indicator.result.levels {
-            let y = pixels.hairlineCenter(frame.y(forPrice: level.value))
-            guard y >= plot.minY, y <= plot.maxY else { continue }
+            let y = pixels.hairlineCenter(mapping.y(level.value))
+            guard y >= mapping.plot.minY, y <= mapping.plot.maxY else { continue }
             var path = Path()
-            path.move(to: CGPoint(x: plot.minX, y: y))
-            path.addLine(to: CGPoint(x: plot.maxX, y: y))
+            path.move(to: CGPoint(x: mapping.plot.minX, y: y))
+            path.addLine(to: CGPoint(x: mapping.plot.maxX, y: y))
             context.stroke(
                 path,
                 with: .color(indicator.color(for: level.colorRole)),

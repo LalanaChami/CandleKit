@@ -14,6 +14,8 @@ struct MarketView: View {
     @State private var showsEMA = true
     @State private var showsBollinger = false
     @State private var showsVWAP = false
+    @State private var showsRSI = false
+    @State private var showsMACD = false
     @State private var showsVolume = true
 
     var body: some View {
@@ -124,6 +126,10 @@ struct MarketView: View {
                 Toggle("VWAP", isOn: $showsVWAP)
                 Toggle("Volume", isOn: $showsVolume)
             }
+            Section("Panes") {
+                Toggle("RSI 14", isOn: $showsRSI)
+                Toggle("MACD", isOn: $showsMACD)
+            }
             Button("Reset zoom", systemImage: "arrow.counterclockwise") {
                 // Same spring as double-tap-to-reset on the chart itself, so the menu action and
                 // the gesture that does the same thing feel the same.
@@ -141,6 +147,9 @@ struct MarketView: View {
         // Exercises the multi-plot and fill paths, which a plain moving average never touches.
         if showsBollinger { result.append(.bollingerBands()) }
         if showsVWAP { result.append(.vwap()) }
+        // These draw in their own panes below the candles.
+        if showsRSI { result.append(.rsi(14)) }
+        if showsMACD { result.append(.macd()) }
         return result
     }
 }

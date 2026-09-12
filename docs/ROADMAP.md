@@ -221,15 +221,21 @@ rewriting each one later or bolting on special cases per indicator. Do 5.1 and 5
       only. Band fills, histograms, point markers and stepped lines are new draw paths; each is
       batched like the candles are (one path per colour, never per data point) and each needs a
       pixel-snapping story so it stays crisp.
-- [ ] **5.3 Indicator panes.** **(next up — 5.10 landed the drawing primitives, and the separate-pane
-      indicators are computed but currently invisible until this ships.)** (design first) An API like
-      `.indicator(.rsi(14), pane: .below(height: 90))`:
-      - Panes share the horizontal viewport.
-      - The crosshair spans all panes, and the header reads out every pane's value at that candle.
-      - Each pane has its own vertical scale, labels and reference levels.
-      - Volume can move into its own pane.
-      - Panes are resizable by dragging the divider, and collapsible.
-      - Accessibility covers every pane.
+- [x] **5.3 Indicator panes.** *(landed — needs an iOS build and a device check.)*
+      - Panes share the horizontal viewport. ✅
+      - The crosshair spans all panes; the horizontal line and value tag follow whichever pane the
+        finger is in. ✅
+      - Each pane has its own vertical scale, labels and reference levels. ✅
+      - Gestures cover every pane, so a drag starting on an RSI pane still pans the chart. ✅
+      - Indicator panes are capped at 60% of the content height, so adding four doesn't squeeze the
+        candles into a sliver. ✅
+      - **Still open:** panes are not yet resizable by dragging the divider, nor collapsible; volume
+        cannot yet move into its own pane; every separate-pane indicator gets its own pane rather
+        than being mergeable into a shared one; accessibility does not yet describe pane contents.
+        Tracked as 5.11 below.
+- [ ] **5.11 Pane interaction and accessibility.** Drag the divider to resize a pane, collapse and
+      expand, move volume into its own pane, merge two indicators into one pane, and extend VoiceOver
+      so each pane's values are readable at the crosshair rather than only the price.
 
 ### Catalog
 

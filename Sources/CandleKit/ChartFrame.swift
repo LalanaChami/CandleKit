@@ -6,33 +6,149 @@ struct ChartMetrics {
     var timeAxisHeight: CGFloat
     var priceTickSpacing: Double = 56
     var timeLabelSpacing: Double = 96
+    /// Gap between stacked panes, where the separator is drawn.
+    var paneSpacing: CGFloat = 8
+    /// Indicator panes never take more than this share of the content height, however many are
+    /// added or however tall each asks to be. Without a cap, four indicators squeeze the candles
+    /// into a sliver — the one thing the user is actually looking at.
+    var maximumIndicatorPaneShare: CGFloat = 0.6
+    /// Vertical spacing between value labels inside an indicator pane. Larger than the price axis's
+    /// because panes are short and two or three labels is plenty.
+    var paneTickSpacing: Double = 40
+}
+
+/// One horizontal band of the chart with its own vertical scale — the candles, or an indicator
+/// pane beneath them.
+struct ChartPaneLayout: Identifiable {
+    /// `"price"` for the main pane, otherwise the indicator's id.
+    let id: String
+    /// Drawing area, excluding the value axis.
+    let plot: CGRect
+    /// Value axis to the right of `plot`.
+    let valueAxis: CGRect
+    /// Vertical span values map into, inset from `plot` so lines don't touch the pane edges.
+    let valueBand: ClosedRange<CGFloat>
 }
 
 /// Rectangles for each chart region, in the chart's local coordinates.
 struct ChartLayout {
-    let plot: CGRect
-    let priceAxis: CGRect
+    let pricePane: ChartPaneLayout
+    /// One pane per indicator that asked for its own, stacked top to bottom under the price.
+    let indicatorPanes: [ChartPaneLayout]
     let timeAxis: CGRect
-    /// Vertical span used for prices inside the plot.
-    let priceBand: ClosedRange<CGFloat>
-    /// Vertical span used for volume bars, if shown.
+    /// Vertical span used for volume bars inside the price pane, if shown.
     let volumeBand: ClosedRange<CGFloat>?
+    /// Y positions of the dividing lines between panes.
+    let separators: [CGFloat]
 
-    init(size: CGSize, metrics: ChartMetrics, showsVolume: Bool) {
-        let plotWidth = max(0, size.width - metrics.priceAxisWidth)
-        let plotHeight = max(0, size.height - metrics.timeAxisHeight)
-        plot = CGRect(x: 0, y: 0, width: plotWidth, height: plotHeight)
-        priceAxis = CGRect(x: plotWidth, y: 0, width: max(0, size.width - plotWidth), height: plotHeight)
-        timeAxis = CGRect(x: 0, y: plotHeight, width: plotWidth, height: max(0, size.height - plotHeight))
+    // Convenience accessors so the large amount of existing code that only knows about the price
+    // pane keeps reading naturally.
+    var plot: CGRect { pricePane.plot }
+    var priceAxis: CGRect { pricePane.valueAxis }
+    var priceBand: ClosedRange<CGFloat> { pricePane.valueBand }
 
-        let inset = min(12, plotHeight * 0.05)
+    /// The full interactive area: every pane stacked, excluding the axes. Gestures cover this, so a
+    /// drag that starts on an indicator pane still pans the chart.
+    ///
+    /// Depends only on the size and metrics, never on which indicators are present, so the gesture
+    /// view can be positioned without waiting for indicators to be computed.
+    static func contentRect(size: CGSize, metrics: ChartMetrics) -> CGRect {
+        CGRect(
+            x: 0,
+            y: 0,
+            width: max(0, size.width - metrics.priceAxisWidth),
+            height: max(0, size.height - metrics.timeAxisHeight)
+        )
+    }
+
+    /// - Parameter indicatorPaneHeights: requested height per pane, in order. Heights are scaled
+    ///   down proportionally if they'd exceed `metrics.maximumIndicatorPaneShare`.
+    init(
+        size: CGSize,
+        metrics: ChartMetrics,
+        showsVolume: Bool,
+        indicatorPaneHeights: [(id: String, height: CGFloat)] = []
+    ) {
+        let content = ChartLayout.contentRect(size: size, metrics: metrics)
+        let plotWidth = content.width
+        let axisWidth = max(0, size.width - plotWidth)
+        let contentHeight = content.height
+
+        timeAxis = CGRect(
+            x: 0,
+            y: contentHeight,
+            width: plotWidth,
+            height: max(0, size.height - contentHeight)
+        )
+
+        // Work out how much vertical space the indicator panes actually get.
+        let spacing = indicatorPaneHeights.isEmpty
+            ? 0
+            : metrics.paneSpacing * CGFloat(indicatorPaneHeights.count)
+        let requested = indicatorPaneHeights.reduce(0) { $0 + $1.height } + spacing
+        let allowed = contentHeight * metrics.maximumIndicatorPaneShare
+        let scale = requested > allowed && requested > 0 ? allowed / requested : 1
+        let paneSpacing = metrics.paneSpacing * scale
+
+        var panes: [ChartPaneLayout] = []
+        var separatorPositions: [CGFloat] = []
+
+        // Lay the indicator panes out from the bottom up, so the price pane keeps whatever's left
+        // at the top — the arrangement every trading chart uses.
+        var bottom = contentHeight
+        for entry in indicatorPaneHeights.reversed() {
+            let height = max(0, entry.height * scale)
+            let top = bottom - height
+            let paneRect = CGRect(x: 0, y: top, width: plotWidth, height: height)
+            let inset = min(6, height * 0.12)
+            panes.append(ChartPaneLayout(
+                id: entry.id,
+                plot: paneRect,
+                valueAxis: CGRect(x: plotWidth, y: top, width: axisWidth, height: height),
+                valueBand: (top + inset)...max(top + inset, paneRect.maxY - inset)
+            ))
+            separatorPositions.append(top)
+            bottom = top - paneSpacing
+        }
+        indicatorPanes = panes.reversed()
+        separators = separatorPositions.sorted()
+
+        let priceHeight = max(0, bottom)
+        let priceRect = CGRect(x: 0, y: 0, width: plotWidth, height: priceHeight)
+        let inset = min(12, priceHeight * 0.05)
+        let band: ClosedRange<CGFloat>
         if showsVolume {
-            volumeBand = (plotHeight * 0.8)...plotHeight
-            priceBand = inset...max(inset, plotHeight * 0.78)
+            volumeBand = (priceHeight * 0.8)...priceHeight
+            band = inset...max(inset, priceHeight * 0.78)
         } else {
             volumeBand = nil
-            priceBand = inset...max(inset, plotHeight - inset)
+            band = inset...max(inset, priceHeight - inset)
         }
+        pricePane = ChartPaneLayout(
+            id: "price",
+            plot: priceRect,
+            valueAxis: CGRect(x: plotWidth, y: 0, width: axisWidth, height: priceHeight),
+            valueBand: band
+        )
+    }
+}
+
+/// An indicator pane's computed contents: which indicators it holds, and the scale they map into.
+struct ResolvedPane: Identifiable {
+    let layout: ChartPaneLayout
+    let indicators: [ResolvedIndicator]
+    let scale: LinearScale
+    let ticks: PriceTicks
+    let tickLabels: [String]
+
+    var id: String { layout.id }
+
+    func y(forValue value: Double) -> CGFloat {
+        CGFloat(scale.map(value))
+    }
+
+    func value(atY y: CGFloat) -> Double {
+        scale.invert(Double(y))
     }
 }
 
@@ -49,9 +165,10 @@ struct ChartFrame {
     let baseTimeUnit: TimeLabelUnit
     let interval: TimeInterval
     let volumeMax: Double
-    /// Indicators computed and colour-resolved for this frame. Only those on the price pane are
-    /// drawn today; separate panes arrive with roadmap task 5.3.
+    /// Indicators drawn over the candles, sharing the price scale.
     let indicators: [ResolvedIndicator]
+    /// Indicators drawn in their own panes beneath the price, each with its own vertical scale.
+    let panes: [ResolvedPane]
     /// Pre-formatted axis labels, parallel to `priceTicks.values` and `timeTicks`.
     ///
     /// Formatting happens once per change in `CandleChartState.makeFrame`, not inside the Canvas

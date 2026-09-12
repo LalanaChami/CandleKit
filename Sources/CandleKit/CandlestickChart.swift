@@ -59,9 +59,10 @@ public struct CandlestickChart: View {
 
             GeometryReader { proxy in
                 let metrics = ChartMetrics(priceAxisWidth: priceAxisWidth, timeAxisHeight: timeAxisHeight)
-                // The layout depends only on the size and the metrics, never on the viewport, so the
-                // gesture view can be positioned without waiting on a rendered ChartFrame.
-                let layout = ChartLayout(size: proxy.size, metrics: metrics, showsVolume: showsVolume)
+                // Covers every pane, so a drag starting on an indicator pane still pans the chart.
+                // Depends only on the size and metrics — never on which indicators are present — so
+                // the gesture view is positioned without waiting on a rendered ChartFrame.
+                let content = ChartLayout.contentRect(size: proxy.size, metrics: metrics)
 
                 ZStack(alignment: .topLeading) {
                     ChartContentLayer(
@@ -77,8 +78,8 @@ public struct CandlestickChart: View {
                     CrosshairLayer(state: state, style: style)
                     LastPriceBadge(state: state, candles: candles, style: style)
                     ChartGestureView(state: state)
-                        .frame(width: layout.plot.width, height: layout.plot.height)
-                        .position(x: layout.plot.midX, y: layout.plot.midY)
+                        .frame(width: content.width, height: content.height)
+                        .position(x: content.midX, y: content.midY)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("Candlestick chart"))
