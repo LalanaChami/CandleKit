@@ -467,14 +467,19 @@ public final class CandleChartState {
         }
         // Autoscale must account for overlays that leave the candles' range — a 200-period MA on a
         // trending series routinely sits outside the visible highs and lows.
-        let priceOverlaySeries = resolved
-            .filter { $0.pane == .price }
-            .flatMap { indicator in
-                indicator.result.plots.compactMap { plot in
-                    if case .hidden = plot.style { return nil }
-                    return plot.values
-                }
+        //
+        // Written as an explicit loop rather than filter/flatMap/compactMap: the element type is
+        // `[Double?]`, so a `compactMap` closure returning it is returning an optional array, and
+        // with `return nil` as one branch of a multi-statement closure nested inside an unannotated
+        // `flatMap` there's nothing left for the compiler to anchor inference on. A loop is also
+        // easier to read here than three chained transforms.
+        var priceOverlaySeries: [[Double?]] = []
+        for indicator in resolved where indicator.pane == .price {
+            for plot in indicator.result.plots {
+                if case .hidden = plot.style { continue }
+                priceOverlaySeries.append(plot.values)
             }
+        }
         let visible = viewport.visibleRange(width: plotWidth, count: newCandles.count)
         // While scrolling, reuse the cached price range so horizontal panning doesn't shift candle heights.
         // Update on data change, zoom (change == .unchanged but !isScrolling covers non-pan interactions),
