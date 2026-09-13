@@ -12,7 +12,7 @@ struct MarketView: View {
 
     @State private var showsSMA = true
     @State private var showsEMA = true
-    @State private var showsBollinger = false
+    @State private var showsBollinger = true
     @State private var showsVWAP = false
     @State private var showsRSI = false
     @State private var showsMACD = false
