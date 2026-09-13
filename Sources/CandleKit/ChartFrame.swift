@@ -15,6 +15,12 @@ struct ChartMetrics {
     /// Vertical spacing between value labels inside an indicator pane. Larger than the price axis's
     /// because panes are short and two or three labels is plenty.
     var paneTickSpacing: Double = 40
+    /// How far candles extend underneath the price axis, letting them show (blurred, if the style
+    /// sets a material there) through it as they scroll toward the edge. `0` reproduces the classic
+    /// non-overlapping layout exactly. `CandlestickChart` sets this only when
+    /// `CandleChartStyle.priceAxisMaterial` is non-nil — with no material there's nothing to keep
+    /// the tick labels legible against candles moving underneath, so the two are always paired.
+    var priceAxisOverlap: CGFloat = 0
 }
 
 /// One horizontal band of the chart with its own vertical scale — the candles, or an indicator
@@ -56,7 +62,7 @@ struct ChartLayout {
         CGRect(
             x: 0,
             y: 0,
-            width: max(0, size.width - metrics.priceAxisWidth),
+            width: max(0, size.width - metrics.priceAxisWidth + metrics.priceAxisOverlap),
             height: max(0, size.height - metrics.timeAxisHeight)
         )
     }
@@ -71,13 +77,19 @@ struct ChartLayout {
     ) {
         let content = ChartLayout.contentRect(size: size, metrics: metrics)
         let plotWidth = content.width
-        let axisWidth = max(0, size.width - plotWidth)
+        let axisWidth = metrics.priceAxisWidth
+        // The axis column's own left edge doesn't move when overlap is nonzero — only the plot
+        // widens to slide underneath it. That's what lets candles peek through a glass axis without
+        // the axis itself sliding around or changing width.
+        let axisX = max(0, plotWidth - metrics.priceAxisOverlap)
         let contentHeight = content.height
 
         timeAxis = CGRect(
             x: 0,
             y: contentHeight,
-            width: plotWidth,
+            // Deliberately not `plotWidth`: the time axis stops at the same boundary it always has,
+            // so the bottom-right corner doesn't get an odd sliver of time axis under the glass.
+            width: axisX,
             height: max(0, size.height - contentHeight)
         )
 
@@ -104,7 +116,7 @@ struct ChartLayout {
             panes.append(ChartPaneLayout(
                 id: entry.id,
                 plot: paneRect,
-                valueAxis: CGRect(x: plotWidth, y: top, width: axisWidth, height: height),
+                valueAxis: CGRect(x: axisX, y: top, width: axisWidth, height: height),
                 valueBand: (top + inset)...max(top + inset, paneRect.maxY - inset)
             ))
             separatorPositions.append(top)
@@ -127,7 +139,7 @@ struct ChartLayout {
         pricePane = ChartPaneLayout(
             id: "price",
             plot: priceRect,
-            valueAxis: CGRect(x: plotWidth, y: 0, width: axisWidth, height: priceHeight),
+            valueAxis: CGRect(x: axisX, y: 0, width: axisWidth, height: priceHeight),
             valueBand: band
         )
     }

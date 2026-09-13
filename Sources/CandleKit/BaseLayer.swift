@@ -572,25 +572,21 @@ struct BaseLayerRenderer {
     private func drawAxes(in context: inout GraphicsContext) {
         let layout = frame.layout
 
+        // No vertical divider between the plot and the price axis: when a glass material is set
+        // (`CandlestickChart.PriceAxisGlassPanel`), the panel's own edge reads as the boundary, and
+        // a stroked line on top of translucent glass looked redundant. The horizontal divider along
+        // the bottom stays either way.
         var border = Path()
-        let borderX = pixels.hairlineCenter(layout.plot.maxX)
-        border.move(to: CGPoint(x: borderX, y: layout.plot.minY))
-        border.addLine(to: CGPoint(x: borderX, y: layout.plot.maxY))
         let borderY = pixels.hairlineCenter(layout.plot.maxY)
         border.move(to: CGPoint(x: layout.plot.minX, y: borderY))
         border.addLine(to: CGPoint(x: layout.priceAxis.maxX, y: borderY))
         context.stroke(border, with: .color(style.gridColor), lineWidth: pixels.hairline)
 
-        // Labels are pre-formatted in makeFrame; this loop must not call any FormatStyle.
-        for (price, label) in zip(frame.priceTicks.values, frame.priceTickLabels) {
-            let y = frame.y(forPrice: price)
-            guard y > layout.plot.minY + 6, y < layout.plot.maxY - 6 else { continue }
-            context.draw(
-                ChartText.label(label, color: style.axisLabelColor),
-                at: CGPoint(x: layout.priceAxis.minX + 6, y: y),
-                anchor: .leading
-            )
-        }
+        // Price tick labels are drawn by `PriceAxisGlassPanel` as real `Text` views now, not here —
+        // a `Material` only blurs what's behind the view it's attached to, so text painted into
+        // this same Canvas would have been blurred along with the candles instead of staying crisp
+        // on top of them. When no material is set, `PriceAxisGlassPanel` still draws the same
+        // labels (just without a background layer beneath them), so this isn't material-only.
 
         let timeFadeZone = 48.0
         for (tick, label) in zip(frame.timeTicks, frame.timeTickLabels) {

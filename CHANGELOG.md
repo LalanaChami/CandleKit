@@ -6,6 +6,53 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added — glass price axis and crosshair glow
+
+Two cosmetic changes, both opt-in or additive — nothing here changes default appearance for
+existing adopters.
+
+- **`CandleChartStyle.priceAxisMaterial: Material?`** (default `nil`, unchanged appearance). Setting
+  it — `.ultraThinMaterial` is a reasonable start — gives the price axis a frosted backdrop, and lets
+  candles extend slightly underneath it (see `ChartMetrics.priceAxisOverlap`, internal, set
+  automatically only when a material is chosen) so they show through, blurred, as they scroll toward
+  the edge. Deliberately built on the standard `Material` APIs (iOS 15+) rather than iOS 26's
+  `glassEffect()`, so it works across CandleKit's full iOS 17+ support; on iOS 26 a `Material` still
+  renders with the system's current glass materials, just without the newer API's specular
+  highlights and morphing.
+- **Price axis tick labels moved out of the Canvas into a real view** (`PriceAxisGlassPanel`, new,
+  in `CandlestickChart.swift`). A `Material` only blurs content *behind* the view it's attached to —
+  labels painted into the same `Canvas` as the candles would have blurred right along with them.
+  This is the same reason `LastPriceBadge` had to become a real view rather than Canvas-drawn text.
+  Labels render identically whether or not a material is set; only the background layer is
+  conditional.
+- **Crosshair glow.** Long-pressing now draws a soft additive highlight around the focused candle,
+  in `CrosshairLayer`. Two blurred passes at different radii and opacities (a single blur reads as a
+  smudge), blended with `.plusLighter` so it brightens the candle rather than dulling it with an
+  overlay. Deliberately uses only `GraphicsContext.Filter.blur(radius:)` — a single, simple
+  parameter — rather than `.shadow(...)`, whose multi-parameter signature hasn't been confirmed to
+  compile; getting a Canvas filter signature wrong has cost a compile-error round trip before, and
+  `.blur` is a much smaller surface to be wrong about.
+
+### Fixed during this change
+
+Caught and corrected before packaging, not after: the price axis panel was initially wired to only
+appear when a material was set, which meant leaving `priceAxisMaterial` at its default `nil` would
+have drawn **no price labels at all** — a real regression, not a stub. Fixed so the panel — and the
+labels — render unconditionally; only its background rectangle is conditional on the style.
+
+### Verification
+
+None of this has been seen rendered. The layout math (`ChartLayout`'s new `priceAxisOverlap`) was
+checked by hand — with overlap `0` it's provably identical to the previous non-overlapping formula,
+since that's the value used whenever `priceAxisMaterial` is `nil`, which is every existing
+integration. What can't be checked without a device: whether tick labels stay legible against
+candles moving underneath the glass, and whether the glow looks like a glow rather than a smudge or
+a blown-out blob. Both are exactly the kind of thing that's hard to get right on the first attempt
+without seeing it — tune the two blur radii and opacities in `CrosshairLayer.drawFocusGlow` and the
+`28`pt overlap constant in `CandlestickChart` freely once you can.
+
+## Earlier unreleased work
+
 ### Added — indicator panes (Phase 5.3)
 
 RSI, MACD, Stochastic, ATR and OBV now actually draw. They were computed and cached since the

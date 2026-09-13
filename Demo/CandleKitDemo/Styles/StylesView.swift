@@ -75,6 +75,12 @@ struct StyleExample: Identifiable {
                 indicators: [.sma(20, color: .yellow), .ema(50, color: .indigo)]
             ),
             StyleExample(
+                id: "Glass price axis",
+                summary: "Candles peek through the price axis, softly blurred, as they scroll underneath — best seen while panning, not in this static preview.",
+                code: "CandlestickChart(candles)\n    .candleChartStyle(CandleChartStyle(priceAxisMaterial: .ultraThinMaterial))",
+                style: CandleChartStyle(priceAxisMaterial: .ultraThinMaterial)
+            ),
+            StyleExample(
                 id: "Compact",
                 summary: "No header or volume, for cards and lists.",
                 code: "CandlestickChart(candles)\n    .headerVisible(false)\n    .volumeVisible(false)",

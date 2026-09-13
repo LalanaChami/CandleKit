@@ -18,6 +18,20 @@ public struct CandleChartStyle {
     /// Colours that `IndicatorColorRole.series(_:)` indexes into. Indicators cycle through it, so
     /// two overlays added back to back are visually distinct without the app choosing colours.
     public var indicatorPalette: [Color]
+    /// Background behind the price axis's tick labels. `nil` (the default) keeps the classic fully
+    /// transparent axis, unchanged from earlier versions.
+    ///
+    /// Setting a `Material` (`.ultraThinMaterial` is a reasonable starting point) gives a frosted,
+    /// "Liquid Glass"-like look, and lets candles show through it, softly blurred, as they scroll
+    /// toward the price axis. This uses the standard `Material` APIs (available since iOS 15)
+    /// rather than iOS 26's `glassEffect()`, so it works across CandleKit's full iOS 17+ support —
+    /// on iOS 26 and later a `Material` still renders using the system's current glass materials,
+    /// it just doesn't get the newer API's specular highlights and morphing.
+    ///
+    /// Setting this also lets candles extend slightly underneath the axis (see
+    /// `ChartMetrics.priceAxisOverlap`) — with no material there'd be nothing keeping the tick
+    /// labels legible against candles moving underneath, so the two always change together.
+    public var priceAxisMaterial: Material?
 
     public init(
         upColor: Color = .green,
@@ -28,7 +42,8 @@ public struct CandleChartStyle {
         gridColor: Color = Color.secondary.opacity(0.14),
         axisLabelColor: Color = .secondary,
         crosshairColor: Color = Color.primary.opacity(0.55),
-        indicatorPalette: [Color] = [.orange, .purple, .teal, .pink, .indigo, .brown]
+        indicatorPalette: [Color] = [.orange, .purple, .teal, .pink, .indigo, .brown],
+        priceAxisMaterial: Material? = nil
     ) {
         self.upColor = upColor
         self.downColor = downColor
@@ -39,6 +54,7 @@ public struct CandleChartStyle {
         self.axisLabelColor = axisLabelColor
         self.crosshairColor = crosshairColor
         self.indicatorPalette = indicatorPalette
+        self.priceAxisMaterial = priceAxisMaterial
     }
 
     /// Green for rising, red for falling.

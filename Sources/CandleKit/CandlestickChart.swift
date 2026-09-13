@@ -58,7 +58,13 @@ public struct CandlestickChart: View {
             }
 
             GeometryReader { proxy in
-                let metrics = ChartMetrics(priceAxisWidth: priceAxisWidth, timeAxisHeight: timeAxisHeight)
+                let metrics = ChartMetrics(
+                    priceAxisWidth: priceAxisWidth,
+                    timeAxisHeight: timeAxisHeight,
+                    // Only overlap when there's a material to keep the labels legible against
+                    // candles moving underneath — see the doc comment on the property itself.
+                    priceAxisOverlap: style.priceAxisMaterial != nil ? 28 : 0
+                )
                 // Covers every pane, so a drag starting on an indicator pane still pans the chart.
                 // Depends only on the size and metrics — never on which indicators are present — so
                 // the gesture view is positioned without waiting on a rendered ChartFrame.
@@ -75,6 +81,7 @@ public struct CandlestickChart: View {
                         fractionDigits: fractionDigits,
                         style: style
                     )
+                    PriceAxisGlassPanel(state: state, style: style)
                     CrosshairLayer(state: state, style: style)
                     LastPriceBadge(state: state, candles: candles, style: style)
                     ChartGestureView(state: state)
@@ -214,6 +221,53 @@ private struct LastPriceBadge: View {
             .padding(.leading, 2)
             .frame(width: axis.width, height: Self.height, alignment: .leading)
             .position(x: axis.minX + axis.width / 2, y: y)
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+/// A frosted backdrop behind the price axis's tick labels, letting candles show through it
+/// (softly blurred) as they scroll underneath — see `CandleChartStyle.priceAxisMaterial`.
+///
+/// Tick labels are real `Text` views here, not drawn in the Canvas: a `Material` only blurs
+/// content *behind* the view it's attached to, so text drawn inside the same `Canvas` as the
+/// candles would be blurred right along with them. Rendering them as their own layer, on top of
+/// the material, is what keeps the numbers crisp while the candles behind them aren't — the same
+/// reason `LastPriceBadge` had to become a real view rather than Canvas-drawn text.
+///
+/// Reads `state.revision`, like `LastPriceBadge` — a narrow, cheap subscription (repositioning a
+/// handful of small `Text` views) so tick positions and values track the price scale during a pan
+/// or pinch, not the whole-subtree cost `ChartContentLayer` exists to avoid.
+private struct PriceAxisGlassPanel: View {
+    let state: CandleChartState
+    let style: CandleChartStyle
+
+    var body: some View {
+        let _ = state.revision
+        if let frame = state.currentFrame {
+            let axis = frame.layout.priceAxis
+            ZStack(alignment: .topLeading) {
+                // Only the background is conditional on the style. The labels themselves are
+                // drawn either way — this view is what draws them now, full stop, whether or not
+                // there's a material behind them.
+                if let material = style.priceAxisMaterial {
+                    Rectangle()
+                        .fill(material)
+                        .frame(width: axis.width, height: axis.height)
+                        .position(x: axis.midX, y: axis.midY)
+                }
+
+                ForEach(frame.priceTicks.values.indices, id: \.self) { index in
+                    let y = frame.y(forPrice: frame.priceTicks.values[index])
+                    if y > axis.minY + 6, y < axis.maxY - 6 {
+                        Text(frame.priceTickLabels[index])
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(style.axisLabelColor)
+                            .frame(width: max(0, axis.width - 8), alignment: .leading)
+                            .position(x: axis.minX + max(0, axis.width - 8) / 2 + 6, y: y)
+                    }
+                }
+            }
             .allowsHitTesting(false)
         }
     }

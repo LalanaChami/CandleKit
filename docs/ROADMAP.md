@@ -233,6 +233,22 @@ rewriting each one later or bolting on special cases per indicator. Do 5.1 and 5
         cannot yet move into its own pane; every separate-pane indicator gets its own pane rather
         than being mergeable into a shared one; accessibility does not yet describe pane contents.
         Tracked as 5.11 below.
+- [ ] **5.12 Glass price axis and crosshair glow — needs a device look.** Two cosmetic additions
+      landed opportunistically: `CandleChartStyle.priceAxisMaterial` (opt-in, `nil` by default) lets
+      candles show through the price axis, blurred, as they scroll underneath; the crosshair now
+      draws an additive glow around the focused candle. Both are pure rendering/style changes with
+      no effect on data, gestures, or layout math beyond the axis's own bounds — but neither has
+      been seen rendered. Before relying on either:
+      - Confirm tick labels stay legible against busy candle colors moving underneath the glass —
+        this is the one place "looks fine in theory" and "looks fine on screen" could genuinely
+        differ, since legibility against a moving, colorful backdrop is hard to reason about
+        without seeing it.
+      - Confirm the glow doesn't visually clip oddly at a pane boundary when the focused candle
+        sits near the bottom of the price pane, just above the first indicator pane.
+      - The glow uses `GraphicsContext.Filter.blur(radius:)` only, deliberately avoiding
+        `.shadow(...)`'s multi-parameter signature, which hasn't been confirmed. If `.blur` itself
+        turns out wrong, the fallback is a solid additive-blend outline with no blur at all — less
+        soft, but avoids gambling on unconfirmed Canvas filter APIs.
 - [ ] **5.11 Pane interaction and accessibility.** Drag the divider to resize a pane, collapse and
       expand, move volume into its own pane, merge two indicators into one pane, and extend VoiceOver
       so each pane's values are readable at the crosshair rather than only the price.

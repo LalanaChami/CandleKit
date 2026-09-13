@@ -12,7 +12,7 @@ struct MarketView: View {
 
     @State private var showsSMA = true
     @State private var showsEMA = true
-    @State private var showsBollinger = true
+    @State private var showsBollinger = false
     @State private var showsVWAP = false
     @State private var showsRSI = false
     @State private var showsMACD = false
@@ -81,6 +81,9 @@ struct MarketView: View {
     @ViewBuilder
     private var realChart: some View {
         CandlestickChart(feed.candles, state: chartState)
+            // Frosted price axis with candles peeking through as they scroll underneath — opted in
+            // explicitly here since the library default keeps the classic opaque axis unchanged.
+            .candleChartStyle(CandleChartStyle(priceAxisMaterial: .ultraThinMaterial))
             .indicators(indicators)
             .volumeVisible(showsVolume)
             .onReachOldestCandle { feed.loadOlder() }

@@ -25,6 +25,12 @@ struct CrosshairLayer: View {
                 guard let frame, frame.candles.indices.contains(index) else { return }
                 ChartPerformance.measure(.drawCrosshair) {
                 let pixels = PixelGrid(scale: scale)
+
+                // Drawn first so the crosshair lines and tags stay crisp on top of it. Always at
+                // the candle's own (price-scale) position, regardless of which pane the finger is
+                // vertically over — the glow marks *which candle*, not which pane is being read.
+                drawFocusGlow(candleIndex: index, frame: frame, style: style, context: &context)
+
                 let plot = frame.layout.plot
                 let x = pixels.hairlineCenter(frame.centerX(ofCandle: index))
 
@@ -87,6 +93,65 @@ struct CrosshairLayer: View {
             .allowsHitTesting(false)
             .sensoryFeedback(.selection, trigger: index)
         }
+    }
+
+    /// A soft, additive highlight around the focused candle's body and wick.
+    ///
+    /// Built from two blurred passes at different radii and opacities rather than one — a single
+    /// blur reads as a smudge, while a tighter inner glow plus a softer, wider outer one is what
+    /// actually looks like a glow. Both use `.blendMode = .plusLighter` (additive) so the highlight
+    /// brightens the candle rather than sitting over it as a dulling overlay, which is how a glow
+    /// should behave physically.
+    ///
+    /// Deliberately avoids `GraphicsContext.Filter.shadow`, which takes several parameters this
+    /// hasn't been run against to confirm; `.blur(radius:)` alone is a much smaller surface to get
+    /// right, at the cost of a plainer glow than a proper drop-shadow-style one would give.
+    private func drawFocusGlow(
+        candleIndex: Int,
+        frame: ChartFrame,
+        style: CandleChartStyle,
+        context: inout GraphicsContext
+    ) {
+        let candle = frame.candles[candleIndex]
+        let centerX = frame.centerX(ofCandle: candleIndex)
+        let bodyWidth = max(2, CGFloat(frame.viewport.spacing) * style.bodyWidthRatio)
+        let highY = frame.y(forPrice: candle.high)
+        let lowY = frame.y(forPrice: candle.low)
+        let openY = frame.y(forPrice: candle.open)
+        let closeY = frame.y(forPrice: candle.close)
+        let bodyTop = min(openY, closeY)
+        let bodyHeight = max(abs(openY - closeY), 2)
+        let glowColor = candle.isBullish ? style.upColor : style.downColor
+
+        // A little larger than the real candle, so the blur has visible room to spread outward
+        // past its edges rather than only softening them inward.
+        let expand: CGFloat = 3
+        var shape = Path()
+        shape.addRoundedRect(
+            in: CGRect(x: centerX - 1.5, y: highY, width: 3, height: max(lowY - highY, 2)),
+            cornerSize: CGSize(width: 1.5, height: 1.5)
+        )
+        shape.addRoundedRect(
+            in: CGRect(
+                x: centerX - bodyWidth / 2 - expand,
+                y: bodyTop - expand,
+                width: bodyWidth + expand * 2,
+                height: bodyHeight + expand * 2
+            ),
+            cornerSize: CGSize(width: 3, height: 3)
+        )
+
+        var outer = context
+        outer.addFilter(.blur(radius: 14))
+        outer.blendMode = .plusLighter
+        outer.opacity = 0.45
+        outer.fill(shape, with: .color(glowColor))
+
+        var inner = context
+        inner.addFilter(.blur(radius: 6))
+        inner.blendMode = .plusLighter
+        inner.opacity = 0.85
+        inner.fill(shape, with: .color(glowColor))
     }
 }
 #endif
