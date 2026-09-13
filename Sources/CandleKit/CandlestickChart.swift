@@ -267,18 +267,30 @@ private struct PriceAxisGlassPanel: View {
                     // to iterate on it directly against a device.
                     Rectangle()
                         .fill(material)
+                        // `Material` alone carries its own neutral grey-ish tint regardless of
+                        // what's behind it, which is what made the panel read as a distinctly
+                        // coloured box rather than a frosted version of its surroundings. Blending
+                        // toward the system background pulls its hue back toward whatever's already
+                        // around it — `.systemBackground` resolves to the correct value in both
+                        // light and dark automatically, no explicit colour-scheme branch needed —
+                        // and the reduced opacity on the whole layer afterward makes the panel
+                        // noticeably more translucent than `Material` alone allows (there's no
+                        // "thinner than ultraThin" material to reach for instead).
+                        .overlay(Color(uiColor: .systemBackground).opacity(0.4))
+                        .opacity(0.7)
                         .frame(width: axis.width, height: axis.height)
                         // Feathers three edges — leading, top, bottom — so the panel dissolves into
                         // the chart instead of presenting a hard-edged box. The trailing edge stays
                         // fully opaque; it's flush with the screen edge, with nothing to blend into.
                         // Two masks stack multiplicatively (each restricts the alpha the previous
                         // one already restricted), which is how one shape ends up faded on more than
-                        // one side without hand-building a 2D gradient.
+                        // one side without hand-building a 2D gradient. Fractions widened slightly
+                        // from the previous round for an even softer, smoother dissolve.
                         .mask(
                             LinearGradient(
                                 stops: [
                                     .init(color: .clear, location: 0),
-                                    .init(color: .black, location: 0.15),
+                                    .init(color: .black, location: 0.2),
                                     .init(color: .black, location: 1),
                                 ],
                                 startPoint: .leading,
@@ -289,8 +301,8 @@ private struct PriceAxisGlassPanel: View {
                             LinearGradient(
                                 stops: [
                                     .init(color: .clear, location: 0),
-                                    .init(color: .black, location: 0.08),
-                                    .init(color: .black, location: 0.92),
+                                    .init(color: .black, location: 0.12),
+                                    .init(color: .black, location: 0.88),
                                     .init(color: .clear, location: 1),
                                 ],
                                 startPoint: .top,

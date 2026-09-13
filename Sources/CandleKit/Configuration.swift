@@ -22,12 +22,15 @@ public struct CandleChartStyle {
     /// scroll toward the edge. `nil` (the default) keeps the classic fully transparent axis,
     /// unchanged from earlier versions.
     ///
-    /// The panel is a plain `Material` fill (`.ultraThinMaterial` is a reasonable starting point),
-    /// feathered on three edges so it dissolves into the chart rather than presenting a hard-edged
-    /// box. An iOS 26 build using the real Liquid Glass API (`glassEffect`) was tried and reverted
-    /// after real device screenshots showed it producing visible colour-tinted glow artefacts on
-    /// this tall, edge-spanning shape — not something safely tunable without a device in hand, so
-    /// this fell back to the simpler, well-understood primitive. Worth revisiting later.
+    /// The panel is a `Material` fill (`.ultraThinMaterial` is a reasonable starting point),
+    /// blended toward the system background colour and dimmed slightly further for extra
+    /// translucency, then feathered on three edges so it dissolves into the chart rather than
+    /// presenting a hard-edged, distinctly-coloured box — `Material` alone carries its own neutral
+    /// tint regardless of what's behind it, which read as a panel that didn't belong with its
+    /// surroundings. An iOS 26 build using the real Liquid Glass API (`glassEffect`) was tried and
+    /// reverted after real device screenshots showed it producing visible colour-tinted glow
+    /// artefacts on this tall, edge-spanning shape — not something safely tunable without a device
+    /// in hand, so this fell back to the simpler, well-understood primitive. Worth revisiting later.
     ///
     /// Setting this also lets candles extend further underneath the axis (see
     /// `ChartMetrics.priceAxisOverlap`) — with nothing set there'd be nothing keeping the tick

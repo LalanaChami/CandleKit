@@ -6,6 +6,20 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Changed — price axis now blends toward the background instead of standing out
+
+Follow-up to the previous round's structural fix (plain `Material`, three-edge feathering) — this one addresses colour and opacity specifically, per feedback that the panel's own tint still read as a distinct box against its surroundings.
+
+- **Blended toward the system background colour.** `Material` carries its own neutral grey-ish tint no matter what's behind it, which is what made it stand out rather than blend in. The panel now overlays `Color(uiColor: .systemBackground)` at low opacity on top of the material — `.systemBackground` resolves correctly in both light and dark automatically, no explicit colour-scheme branch needed.
+- **More translucent than any single `Material` level allows.** There's no "thinner than ultraThin" material to reach for, so the whole panel now also gets a flat opacity reduction (0.7) on top of the background blend, for translucency `Material` alone can't reach.
+- **Feather fractions widened** (leading 15%→20%, top/bottom 8%→12% each) for a smoother, less abrupt dissolve at all three edges.
+
+### Verification
+
+This round trades legibility against translucency more directly than the previous ones did — the whole point of a backing panel is to keep tick labels readable against moving candle colours, and turning that panel more translucent works directly against that. Whether 0.7 opacity still gives labels enough of a backdrop, or needs pulling back up, is exactly the kind of judgement call that needs eyes on a real screen, in both light and dark mode, not just reasoning.
+
+## Earlier unreleased work
+
 ### Fixed — glass axis based on real device screenshots
 
 The previous two rounds were reasoned about carefully but never seen rendered. This round is driven directly by screenshots showing what was actually wrong.

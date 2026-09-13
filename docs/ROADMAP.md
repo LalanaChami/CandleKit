@@ -233,20 +233,18 @@ rewriting each one later or bolting on special cases per indicator. Do 5.1 and 5
         cannot yet move into its own pane; every separate-pane indicator gets its own pane rather
         than being mergeable into a shared one; accessibility does not yet describe pane contents.
         Tracked as 5.11 below.
-- [ ] **5.12 Glass price axis and crosshair spotlight — needs a device look.** Fourth revision,
-      after real device screenshots showed `glassEffect` producing visible colour-tinted glow
-      artefacts along the top and bottom of the axis strip. Current state:
-      - **`glassEffect` has been reverted.** It's a sophisticated, very new API, and the artefacts
-        seen weren't something safely diagnosable or tunable without a device in hand — three
-        rounds of blind guessing at an unpredictable API is three too many. The axis now uses a
-        plain `Material` fill on every iOS version, feathered on three edges (leading, top, bottom)
-        via two stacked `.mask(LinearGradient)` calls, with the trailing edge — flush with the
-        screen — left fully opaque. Revisiting true Liquid Glass is future work, not abandoned, but
-        it needs a way to iterate against a real device rather than another guess.
-      - `ChartMetrics.priceAxisOverlap` raised from 28pt to 40pt (of a ~64pt-wide axis), so
-        candles actually extend behind most of the axis's width rather than leaving its outer third
-        showing plain background with nothing to blur — directly from the screenshot feedback that
-        "there's still background under it."
+- [ ] **5.12 Glass price axis and crosshair spotlight — needs a device look.** Fifth revision, now
+      addressing the axis's colour rather than its shape.
+      - **The panel now blends toward the system background colour** rather than showing
+        `Material`'s own neutral tint outright — `Color(uiColor: .systemBackground)` overlaid at
+        low opacity, which resolves correctly in both light and dark automatically — plus an
+        overall opacity reduction for more translucency than any single `Material` level offers on
+        its own. Directly from feedback that the axis's colour was standing out against its
+        surroundings rather than blending in.
+      - Feather fractions widened slightly (leading 15%→20%, top/bottom 8%→12% each) for a smoother
+        dissolve.
+      - `glassEffect` remains reverted (see the previous entry); still a plain `Material`-based
+        panel, not real Liquid Glass.
       - The crosshair glow is stroked, not filled (see the entry above this one for why).
       - **On iOS 26+, the price axis uses the real `glassEffect()` API** (genuine Liquid Glass —
         specular highlights, not just blur), clipped to a shape rounded only on the leading edge
@@ -260,11 +258,13 @@ rewriting each one later or bolting on special cases per indicator. Do 5.1 and 5
 
       Both remain pure rendering/style changes with no effect on data, gestures, or layout math
       beyond the axis's own bounds. Before relying on it:
-      - Confirm the top/bottom feathering actually removes the artefacts the screenshots showed —
-        that was the specific, concrete evidence driving this revision, so it's the first thing to
-        re-check, not an assumption to carry forward.
-      - Confirm tick labels stay legible against busy candle colors moving underneath, now that
-        more of the axis's width (40 of ~64pt) has candle content behind it than before.
+      - Confirm the axis now actually reads as part of the background rather than a distinct box —
+        this round's specific target, and the thing to check first.
+      - Confirm the extra translucency (0.7 overall opacity on top of the background blend) hasn't
+        made the panel so faint it no longer helps tick-label legibility, which was the entire
+        reason a backing existed in the first place — this is the one place "more translucent" and
+        "still functions as a legibility backdrop" are in real tension, and it's not obvious in
+        advance which value wins that trade-off.
       - Confirm the dim-with-a-hole reads as a spotlight and not as a distracting hard edge, and
         that indicator panes dimming without their own point-highlight doesn't look like a bug
         (it's deliberate — see the doc comment on `crosshairDimOpacity` — but "deliberate" and
