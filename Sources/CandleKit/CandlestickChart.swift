@@ -63,7 +63,12 @@ public struct CandlestickChart: View {
                     timeAxisHeight: timeAxisHeight,
                     // Only overlap when there's a material to keep the labels legible against
                     // candles moving underneath — see the doc comment on the property itself.
-                    priceAxisOverlap: style.priceAxisMaterial != nil ? 28 : 0
+                    // 40 of the axis's ~64pt width, not just 28 — the previous value left over a
+                    // third of the axis with no candle content behind it at all (plain background,
+                    // not blurred candles), which is what "there's still background under it" was
+                    // describing. This isn't the whole width because the labels' own reading area,
+                    // nearest the trailing/screen edge, is better served by staying candle-free.
+                    priceAxisOverlap: style.priceAxisMaterial != nil ? 40 : 0
                 )
                 // Covers every pane, so a drag starting on an indicator pane still pans the chart.
                 // Depends only on the size and metrics — never on which indicators are present — so
@@ -251,9 +256,47 @@ private struct PriceAxisGlassPanel: View {
                 // drawn either way — this view is what draws them now, full stop, whether or not
                 // there's a material behind them.
                 if let material = style.priceAxisMaterial {
+                    // Plain rectangle, not a rounded/stroked shape: real device screenshots showed
+                    // `glassEffect` producing visible colour-tinted glow artefacts along the top and
+                    // bottom of this tall, edge-spanning strip, and a stroked rounded-corner outline
+                    // added its own hard edge that fought the feathering below. Both are dropped —
+                    // this is exactly the situation where a sophisticated new API misbehaves in a
+                    // way that can't be safely diagnosed or tuned without a device in hand, so this
+                    // falls back to the simpler, well-understood primitive rather than continuing to
+                    // guess at `glassEffect` parameters. Revisit true Liquid Glass once there's a way
+                    // to iterate on it directly against a device.
                     Rectangle()
                         .fill(material)
                         .frame(width: axis.width, height: axis.height)
+                        // Feathers three edges — leading, top, bottom — so the panel dissolves into
+                        // the chart instead of presenting a hard-edged box. The trailing edge stays
+                        // fully opaque; it's flush with the screen edge, with nothing to blend into.
+                        // Two masks stack multiplicatively (each restricts the alpha the previous
+                        // one already restricted), which is how one shape ends up faded on more than
+                        // one side without hand-building a 2D gradient.
+                        .mask(
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .clear, location: 0),
+                                    .init(color: .black, location: 0.15),
+                                    .init(color: .black, location: 1),
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .mask(
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .clear, location: 0),
+                                    .init(color: .black, location: 0.08),
+                                    .init(color: .black, location: 0.92),
+                                    .init(color: .clear, location: 1),
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
                         .position(x: axis.midX, y: axis.midY)
                 }
 

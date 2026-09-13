@@ -95,17 +95,25 @@ struct CrosshairLayer: View {
         }
     }
 
-    /// A soft, additive highlight around the focused candle's body and wick.
+    /// Dims the rest of the chart and traces a soft, additive rim glow around the focused candle's
+    /// outline, so it draws the eye without covering it up.
     ///
-    /// Built from two blurred passes at different radii and opacities rather than one — a single
-    /// blur reads as a smudge, while a tighter inner glow plus a softer, wider outer one is what
-    /// actually looks like a glow. Both use `.blendMode = .plusLighter` (additive) so the highlight
-    /// brightens the candle rather than sitting over it as a dulling overlay, which is how a glow
-    /// should behave physically.
+    /// **Stroked, not filled.** The first version filled the candle's own silhouette with a
+    /// blurred, high-opacity color — which, blended additively on top of the real candle drawn
+    /// underneath, washed the whole shape out into a bright blob instead of a highlighted candle.
+    /// Stroking only the outline puts the bright "ink" in a thin band that traces the edge; the
+    /// interior — where the real candle's colour and detail live — is untouched by the glow at all.
     ///
-    /// Deliberately avoids `GraphicsContext.Filter.shadow`, which takes several parameters this
-    /// hasn't been run against to confirm; `.blur(radius:)` alone is a much smaller surface to get
-    /// right, at the cost of a plainer glow than a proper drop-shadow-style one would give.
+    /// The dim layer and the glow deliberately share one shape (`shape` below): the "hole" left in
+    /// the dimming is the same geometry the glow is stroked from, blurred by the same amount, so
+    /// the dimmed boundary and the glow's own soft edge coincide instead of reading as two
+    /// mismatched rings. Drawing order matters — dim first, glow after — so the glow is never
+    /// itself dimmed by the layer underneath it, and the crosshair's lines and tags (drawn by the
+    /// caller afterward, on the original `context`, not a copy) are unaffected by either.
+    ///
+    /// Both the dim and the glow use `GraphicsContext.Filter.blur(radius:)` only, deliberately
+    /// avoiding `.shadow(...)`'s multi-parameter signature, which hasn't been run to confirm;
+    /// `.blur` is a much smaller surface to get right.
     private func drawFocusGlow(
         candleIndex: Int,
         frame: ChartFrame,
@@ -122,10 +130,11 @@ struct CrosshairLayer: View {
         let bodyTop = min(openY, closeY)
         let bodyHeight = max(abs(openY - closeY), 2)
         let glowColor = candle.isBullish ? style.upColor : style.downColor
+        let outerBlurRadius: CGFloat = 10
 
-        // A little larger than the real candle, so the blur has visible room to spread outward
-        // past its edges rather than only softening them inward.
-        let expand: CGFloat = 3
+        // A little larger than the real candle, so the traced outline sits just outside its edges
+        // rather than directly on top of them.
+        let expand: CGFloat = 2
         var shape = Path()
         shape.addRoundedRect(
             in: CGRect(x: centerX - 1.5, y: highY, width: 3, height: max(lowY - highY, 2)),
@@ -141,17 +150,43 @@ struct CrosshairLayer: View {
             cornerSize: CGSize(width: 3, height: 3)
         )
 
+        if style.crosshairDimOpacity > 0 {
+            // Covers every pane, not just the price pane the candle lives in — dimming everything
+            // uniformly reads as consistent, since there's no matching per-pane point highlight to
+            // carve a second hole for.
+            let coverage = CGRect(
+                x: 0,
+                y: 0,
+                width: max(frame.layout.plot.maxX, frame.layout.priceAxis.maxX),
+                height: frame.panes.last?.layout.plot.maxY ?? frame.layout.plot.maxY
+            )
+            // Even-odd fill: the outer rectangle and the inner `shape` overlap, so the overlapping
+            // region cancels out, leaving a dimmed rectangle with a candle-shaped hole in it.
+            var scrimPath = Path(coverage)
+            scrimPath.addPath(shape)
+            var scrim = context
+            scrim.addFilter(.blur(radius: outerBlurRadius))
+            scrim.fill(
+                scrimPath,
+                with: .color(.black.opacity(style.crosshairDimOpacity)),
+                style: FillStyle(eoFill: true)
+            )
+        }
+
+        // Two stroked passes — a soft, wide, faint one and a tighter, brighter one — rather than
+        // one, since a single pass reads as either too weak to notice or too strong to look soft.
+        // Both stay well short of the opacity that visibly tints the candle's own interior.
         var outer = context
-        outer.addFilter(.blur(radius: 14))
+        outer.addFilter(.blur(radius: outerBlurRadius))
         outer.blendMode = .plusLighter
-        outer.opacity = 0.45
-        outer.fill(shape, with: .color(glowColor))
+        outer.opacity = 0.22
+        outer.stroke(shape, with: .color(glowColor), lineWidth: 2.5)
 
         var inner = context
-        inner.addFilter(.blur(radius: 6))
+        inner.addFilter(.blur(radius: 3))
         inner.blendMode = .plusLighter
-        inner.opacity = 0.85
-        inner.fill(shape, with: .color(glowColor))
+        inner.opacity = 0.5
+        inner.stroke(shape, with: .color(glowColor), lineWidth: 1.25)
     }
 }
 #endif

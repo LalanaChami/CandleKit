@@ -6,6 +6,74 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Fixed — glass axis based on real device screenshots
+
+The previous two rounds were reasoned about carefully but never seen rendered. This round is driven directly by screenshots showing what was actually wrong.
+
+- **`glassEffect` reverted.** The screenshots showed visible colour-tinted glow artefacts along the top and bottom of the axis strip — greenish and blue-ish halos that clearly weren't a smooth material. `glassEffect` is a sophisticated, very new API, and diagnosing or tuning that kind of artefact without a device in hand isn't something that can be done responsibly by guessing at parameters a third time. The axis now uses a plain `Material` fill on every iOS version — predictable, well-understood, and known to adapt correctly to light and dark mode on its own. True Liquid Glass is future work, not abandoned, but it needs a way to iterate against a real device rather than another blind attempt.
+- **Corner rounding and the stroke overlay removed.** A rounded shape plus a stroked outline are both hard-edged geometric treatments; layering them under an alpha feather (below) meant two different kinds of "edge" competing for attention. A plain rectangle, feathered, is simpler and was more likely to be part of what was reading as a box.
+- **Feathering extended from one edge to three.** The previous version only faded the leading edge; the screenshots specifically showed hard top and bottom edges too. Two `.mask(LinearGradient)` calls now stack — leading (15%), then top/bottom (8% each) — since chained masks multiply their alpha, which is how one shape ends up faded on more than one side without hand-building a 2D gradient. The trailing edge, flush with the screen, stays fully opaque.
+- **`ChartMetrics.priceAxisOverlap` raised from 28pt to 40pt** (of a ~64pt-wide axis). At 28, over a third of the axis's width had no candle content behind it at all — plain background, nothing to blur — which is what "there's still background under it" was describing. At 40, most of the axis now has real candle content sliding underneath.
+
+### Verification
+
+The specific claim to check is narrow and concrete: do the artefacts from the screenshots that prompted this round actually disappear. Material's own light/dark adaptation is well-established and lower-risk than the previous approach, but the exact feathering fractions (15%/8%/8%) and the overlap distance (40pt) are still first-guess numbers, not tuned ones.
+
+## Earlier unreleased work
+
+### Fixed — glow was washing out candle detail; axis edge still felt hard
+
+Direct follow-up on device feedback to the previous round.
+
+- **Crosshair glow switched from filled to stroked.** The previous version filled the focused candle's whole silhouette with a blurred, high-opacity additive colour. Blended on top of the real candle drawn underneath, that washed the shape into a bright blob rather than highlighting it — exactly the "blurs out the whole candle" symptom reported. A stroke puts the bright colour in a thin band tracing the outline only; the interior, where the real candle's colour and detail live, is untouched by the glow at all. Both blur radii and opacities were also reduced (outer: 14→10pt blur, 0.45→0.22 opacity; inner: 6→3pt blur, 0.85→0.5 opacity) so the rim reads as a highlight rather than a wash even where it does touch the edge.
+- **Price axis leading edge now genuinely fades**, via `.mask(LinearGradient)`, instead of stopping at the rounded shape's geometric edge. The fade is narrow — 15% of the axis width — so it reads as an edge dissolve rather than fading out a third of the panel, which would have left the rounded-corner shape doing very little visible work of its own.
+
+### Verification
+
+Same caveat as the previous two rounds, plus one addition worth naming directly: `.mask(...)` on its own is generic and low-risk, but stacking it on a `glassEffect` view specifically hasn't been ruled out as an interaction neither has been tested independently. And the stroke-based glow's visibility is inherently zoom-dependent — a candle only a few points wide leaves little room for an outline before it just reads as a slightly thicker candle rather than a distinct glow; that's a real tuning question a device is needed to answer, not something more careful reasoning can settle in advance.
+
+## Earlier unreleased work
+
+### Changed — glass axis revised to real Liquid Glass; crosshair now spotlights
+
+Follow-up on direct device feedback: the flat `.ultraThinMaterial` price axis "looked weird," and
+the glow alone didn't stand out enough against a full-brightness chart.
+
+- **Price axis now uses real Liquid Glass on iOS 26+.** `glassEffect(.regular, in:)` instead of a
+  plain `Material` fill — genuine specular highlights and light response, not just a blur. Clipped
+  to `UnevenRoundedRectangle` rounded only on the leading edge, since that's the one edge that's an
+  actual boundary against the chart; the top, bottom and trailing edges are flush with the
+  screen/pane edges, and rounding those (or rounding none of them, the previous behavior) most
+  likely explains why a plain rectangular blur read as an undefined smudge rather than a panel.
+- **iOS 17–25 fallback improved to match**: the same edge-rounded shape, filled with the chosen
+  `Material`, with a faint leading-edge stroke for definition a borderless flat fill had no way to
+  signal. `CandleChartStyle.priceAxisMaterial`'s public meaning is unchanged — it's still the on/off
+  switch and the fallback material choice — but what it now controls chooses the best available
+  rendering per OS rather than always using `Material`.
+- **The crosshair now dims the rest of the chart while glowing the focused candle**
+  (`CandleChartStyle.crosshairDimOpacity`, new, default `0.35`; `0` disables it, keeping only the
+  glow). The dimmed region is the *same shape* the glow is drawn from — the glow's geometry doubles
+  as the "hole" cut into the dim layer via an even-odd fill — so the dimmed boundary and the glow's
+  soft edge coincide rather than reading as two independently-tuned, potentially mismatched rings.
+  Dimming covers every pane uniformly; there's no per-pane point highlight (RSI's value at that
+  candle, say) to carve a matching hole for, which is a deliberate scoping choice, not an oversight.
+- Drawing order — dim, then glow, then the crosshair's own lines and tags — ensures the glow is
+  never dimmed by the layer underneath it, and the lines/tags (drawn afterward on the original,
+  unmodified context) are unaffected by either.
+
+### Verification
+
+Genuinely more uncertain than most changes in this project: this is new API usage
+(`glassEffect(_:in:)`, confirmed against Apple's own documentation but never compiled) layered on
+top of a rendering approach that already needed one round of device-driven correction. Two things
+specifically need a look before trusting this: whether the `glassEffect` branch compiles and looks
+right at all on iOS 26, and whether the dim-with-a-hole reads as a spotlight rather than a hard,
+distracting edge. Both blur radii, both opacities, and the `16`pt corner radius are straightforward
+to retune in place if the current values don't look right — see `CrosshairLayer.drawFocusGlow` and
+`CandlestickChart.PriceAxisGlassPanel`.
+
+## Earlier unreleased work
+
 ### Added — glass price axis and crosshair glow
 
 Two cosmetic changes, both opt-in or additive — nothing here changes default appearance for

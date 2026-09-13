@@ -18,20 +18,27 @@ public struct CandleChartStyle {
     /// Colours that `IndicatorColorRole.series(_:)` indexes into. Indicators cycle through it, so
     /// two overlays added back to back are visually distinct without the app choosing colours.
     public var indicatorPalette: [Color]
-    /// Background behind the price axis's tick labels. `nil` (the default) keeps the classic fully
-    /// transparent axis, unchanged from earlier versions.
+    /// Turns on the frosted price axis, and lets candles show through it, softly blurred, as they
+    /// scroll toward the edge. `nil` (the default) keeps the classic fully transparent axis,
+    /// unchanged from earlier versions.
     ///
-    /// Setting a `Material` (`.ultraThinMaterial` is a reasonable starting point) gives a frosted,
-    /// "Liquid Glass"-like look, and lets candles show through it, softly blurred, as they scroll
-    /// toward the price axis. This uses the standard `Material` APIs (available since iOS 15)
-    /// rather than iOS 26's `glassEffect()`, so it works across CandleKit's full iOS 17+ support —
-    /// on iOS 26 and later a `Material` still renders using the system's current glass materials,
-    /// it just doesn't get the newer API's specular highlights and morphing.
+    /// The panel is a plain `Material` fill (`.ultraThinMaterial` is a reasonable starting point),
+    /// feathered on three edges so it dissolves into the chart rather than presenting a hard-edged
+    /// box. An iOS 26 build using the real Liquid Glass API (`glassEffect`) was tried and reverted
+    /// after real device screenshots showed it producing visible colour-tinted glow artefacts on
+    /// this tall, edge-spanning shape — not something safely tunable without a device in hand, so
+    /// this fell back to the simpler, well-understood primitive. Worth revisiting later.
     ///
-    /// Setting this also lets candles extend slightly underneath the axis (see
-    /// `ChartMetrics.priceAxisOverlap`) — with no material there'd be nothing keeping the tick
+    /// Setting this also lets candles extend further underneath the axis (see
+    /// `ChartMetrics.priceAxisOverlap`) — with nothing set there'd be nothing keeping the tick
     /// labels legible against candles moving underneath, so the two always change together.
     public var priceAxisMaterial: Material?
+    /// How much the rest of the chart dims while the crosshair is showing, so the focused candle's
+    /// glow actually draws the eye instead of competing with a full-brightness chart around it.
+    /// `0` disables dimming entirely, keeping only the glow. Applies uniformly across every pane —
+    /// there's no per-pane point highlight to match it against, so dimming a specific indicator
+    /// value along with everything else reads as consistent rather than as a gap in the effect.
+    public var crosshairDimOpacity: Double
 
     public init(
         upColor: Color = .green,
@@ -43,7 +50,8 @@ public struct CandleChartStyle {
         axisLabelColor: Color = .secondary,
         crosshairColor: Color = Color.primary.opacity(0.55),
         indicatorPalette: [Color] = [.orange, .purple, .teal, .pink, .indigo, .brown],
-        priceAxisMaterial: Material? = nil
+        priceAxisMaterial: Material? = nil,
+        crosshairDimOpacity: Double = 0.35
     ) {
         self.upColor = upColor
         self.downColor = downColor
@@ -55,6 +63,7 @@ public struct CandleChartStyle {
         self.crosshairColor = crosshairColor
         self.indicatorPalette = indicatorPalette
         self.priceAxisMaterial = priceAxisMaterial
+        self.crosshairDimOpacity = min(max(crosshairDimOpacity, 0), 1)
     }
 
     /// Green for rising, red for falling.
