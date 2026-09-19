@@ -38,31 +38,83 @@ deliberately excluded — see below):
   formula-accurate, not yet validated against a live TradingView chart or another authoritative
   source (roadmap 5.9, now explicitly covering Tier 2 too).
 
-### Added — drawing-tools design note and Core model (roadmap 6.1)
+### Added — drawing tools: design note, Core model, renderer, gestures (roadmap 6.1–6.3)
 
 - **`docs/design/drawing-tools.md`** — the design note the roadmap calls for before any drawing-tool
   code: the app-owned `Codable` model anchored to `(Date, price)`, the `.drawings()`/`.drawingTool()`
   API shape, how a drawing tool's drag coexists with the chart's existing pan/pinch/long-press
   (a mode switch on the same `ChartGestureCoordinator`, not simultaneous gesture recognition), hit
   testing tolerances, z-order/lock/visibility, `UndoManager`-based undo, and a VoiceOver plan.
-- **Only the pure model is implemented so far**, deliberately — `Sources/CandleKitCore/Drawings/`:
-  `Drawing`, `DrawingAnchor`, `DrawingKind`, `DrawingTool`, `DrawingStyle`, `DrawingColor` (all
-  `Codable`, no UI-framework dependency, same as the indicator model), plus `DrawingGeometry` for
-  the math hit testing and anchor placement need — mapping a `Date` anchor onto the chart's
-  index-based viewport position (exact match, interpolation between candles, or edge extrapolation),
-  and distance-to-segment/infinite-line/ray/rectangle-edge for hit testing. All unit-tested on Linux.
-- **The renderer, `DrawingController`, the actual gesture-coordinator mode switch, and the Tier 1
-  tool set are not part of this pass.** They're sequenced next, on purpose: the gesture integration
-  touches the same `ChartGestureCoordinator` that a lot of previously hard-won pan/pinch/momentum/
-  rubber-band correctness lives in, and the design note's interaction model is worth having settled
-  before code that risks it.
+- **Core model** (`Sources/CandleKitCore/Drawings/`): `Drawing`, `DrawingAnchor`, `DrawingKind`,
+  `DrawingTool`, `DrawingStyle`, `DrawingColor` (all `Codable`, no UI-framework dependency, same as
+  the indicator model), plus `DrawingGeometry` — anchor↔position mapping against the chart's
+  index-based viewport (exact match, interpolation, edge extrapolation) *and its inverse*
+  (position↔anchor, for turning a live touch back into a `(Date, price)`), and
+  distance-to-segment/infinite-line/ray/rectangle-edge for hit testing. All unit-tested on Linux,
+  including a round-trip test (`time(forPosition:)` → `position(for:)` → back) cross-checked against
+  an independent Python reference.
+- **Renderer, controller, and gesture integration land on top of that model in this same pass:**
+  - `DrawingsLayer`/`DrawingsLayerRenderer` — draws every visible drawing, the tool-in-progress
+    preview, and the selected drawing's anchor handles.
+  - `DrawingScreenMapping` — the one place anchors convert to and from screen pixels, shared by the
+    renderer and hit testing so they can't independently disagree about where a drawing sits (the
+    same role `CandleGeometry` plays for candle bodies, and for the same reason: that exact class of
+    drift was a real, user-reported bug for the crosshair before `CandleGeometry` existed).
+  - `DrawingController` — active-tool creation state, selection, whole-drawing move, and snapping to
+    the nearest visible candle's OHLC within a configurable radius (roadmap 6.2), reusing the
+    existing `impactLight` haptic on each new snap.
+  - `ChartGestureCoordinator` gains a `drawingController` property and a guarded branch in its pan
+    handler (claimed once, at gesture-began time, never renegotiated mid-drag), pinch and long-press
+    now refuse to begin while a tool is active, and a new single-tap recognizer (required to fail
+    against the existing double-tap) handles single-anchor placement and cursor-mode selection.
+    Every one of these is a no-op path when no `.drawings(...)` is attached, so an ordinary chart's
+    gesture behavior is provably unchanged.
+  - New public API: `CandlestickChart.drawings(_:)` / `.drawingTool(_:)` / `.selectedDrawing(_:)`
+    (the last one-way, chart → app, so an app can show its own inspector or delete button — deletion
+    itself stays a plain `drawings.removeAll { ... }` on the app's own binding, per the note's §4/§5).
+- **Eight of Tier 1's nine tools (6.3)** are implemented this way: horizontal line, horizontal ray,
+  vertical line, trend line, ray, rectangle, Fibonacci retracement, text note. **The measure tool is
+  not** — it's transient and non-persisted like the crosshair, not modeled in `DrawingKind`, and
+  needs its own small piece of state rather than fitting this pass's `Drawing`-shaped machinery.
+- **Known gaps, called out rather than left implicit** (see the roadmap's 6.1 entry for the full
+  list): per-anchor resize (moving a selection today translates the whole drawing, not one endpoint);
+  no in-chart text entry for `.textNote` yet (a tap places one with placeholder text); VoiceOver for
+  drawings — both inspecting an existing one and constructing one — is still only the plan in the
+  design note's §6, not code.
 
 ### Verification
 
-Neither of the two additions above has been run in an iOS build yet — the indicator catalog needs a
-device check the same way every rendering-adjacent change in this project does, and the drawing
-model, being pure Foundation with no rendering or gesture code at all, has only been reasoned through
-and unit-tested, not exercised against a real chart (there's nothing to render yet).
+None of the above has been run in an iOS build or on a device — same caveat as every other change in
+this project made without a Swift toolchain available to compile or execute it. Reviewed carefully
+by hand and cross-checked with independent reference logic wherever the math allowed it (the
+position↔anchor round-trip in particular), but not compiled, not run, and the gesture-mode switching
+in `ChartGestureCoordinator` especially deserves a real device pass before shipping — it's the part
+of this codebase with the most previously hard-won, easy-to-regress correctness.
+
+### Fixed — the toolbar's "Chart options" menu re-rendering on every live trade
+
+Reported directly: the Demo app's menu "always gets refreshed." Root cause was `MarketView.body`
+itself, not the menu: `feed.candles` (from `MarketFeed`, an `@Observable` that mutates on every
+incoming trade — often several times a second for the simulated/live feed) was read directly inside
+`MarketView.body`, both via a `.animation(value: feed.candles.isEmpty)` modifier and the `chart`
+computed property. Since `optionsMenu` was *also* a plain computed property evaluated inside that
+same `body`, every trade tick re-evaluated the whole body — including rebuilding the `Menu`'s entire
+content from scratch, even though nothing in the menu itself ever reads `feed`.
+
+- **Split `MarketView.body` into dedicated `View` types** along the same fault line the file's own
+  `JumpToLatestButton` already establishes ("lives in its own view so that only this button, not the
+  whole screen, re-renders"): a new `MarketChartSection` owns everything that reads `feed.candles`,
+  and a new `ChartOptionsMenu` owns the toolbar menu, taking only `Binding`s and a plain
+  `CandleChartState` reference — no `feed` dependency at all.
+- With that split, a live trade re-renders only `MarketChartSection` (which is supposed to update
+  live); `MarketView.body` and the toolbar's `Menu` are no longer touched by it.
+
+### Verification
+
+Not yet confirmed on a device — the fix follows an established, already-proven pattern in this same
+file (`JumpToLatestButton`), and the reasoning (an `@Observable` property read inside a shared `body`
+taints that whole body's Observation scope) is a well-documented SwiftUI behavior, not a guess, but
+whether the menu now visibly stays put while trades stream in hasn't been eyeballed on a real device.
 
 ### Fixed — crosshair dulling moved into the real candle draw call, fixing alignment drift
 

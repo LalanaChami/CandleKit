@@ -9,6 +9,10 @@ import UIKit
 /// in plot coordinates because this view covers exactly the plot.
 struct ChartGestureView: UIViewRepresentable {
     let state: CandleChartState
+    /// `nil` for a chart with no `.drawings(...)`/`.drawingTool(...)` attached — every drawing-tools
+    /// branch below is then skipped and every recognizer behaves exactly as it did before this file
+    /// knew drawing tools existed.
+    var drawingController: DrawingController? = nil
 
     func makeCoordinator() -> ChartGestureCoordinator {
         ChartGestureCoordinator(state: state)
@@ -24,6 +28,7 @@ struct ChartGestureView: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIView, context: Context) {
         context.coordinator.state = state
+        context.coordinator.drawingController = drawingController
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: ChartGestureCoordinator) {
@@ -34,11 +39,21 @@ struct ChartGestureView: UIViewRepresentable {
 @MainActor
 final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     var state: CandleChartState
+    /// Set (from `nil`) only when the app attaches `.drawings(...)`/`.drawingTool(...)` to the
+    /// chart. See the drawing-tools branches in `handlePan`, `handleTap`, and the delegate methods
+    /// below — every one of them is a no-op path when this is `nil`, so an ordinary chart's gesture
+    /// behavior is untouched by any of this.
+    var drawingController: DrawingController?
+    /// Decided once, at the start of a pan gesture, and held for its duration — see
+    /// `DrawingController.shouldClaimPrimaryGesture`'s own doc comment for why this must not be
+    /// renegotiated mid-drag.
+    private var isDrawingGesture = false
 
     private let panRecognizer: UIPanGestureRecognizer
     private let pinchRecognizer: UIPinchGestureRecognizer
     private let longPressRecognizer: UILongPressGestureRecognizer
     private let doubleTapRecognizer: UITapGestureRecognizer
+    private let singleTapRecognizer: UITapGestureRecognizer
 
     // MARK: Momentum
 
@@ -91,6 +106,7 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
         pinchRecognizer = UIPinchGestureRecognizer()
         longPressRecognizer = UILongPressGestureRecognizer()
         doubleTapRecognizer = UITapGestureRecognizer()
+        singleTapRecognizer = UITapGestureRecognizer()
         super.init()
     }
 
@@ -106,8 +122,14 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
         longPressRecognizer.minimumPressDuration = 0.25
         doubleTapRecognizer.addTarget(self, action: #selector(handleDoubleTap(_:)))
         doubleTapRecognizer.numberOfTapsRequired = 2
+        // Selecting a drawing, or placing a single-anchor tool, is a tap distinct from the
+        // double-tap-to-reset that already exists — must lose to it, the standard UIKit way to let
+        // a single tap and a double tap coexist on the same view without the single tap firing first.
+        singleTapRecognizer.addTarget(self, action: #selector(handleSingleTap(_:)))
+        singleTapRecognizer.numberOfTapsRequired = 1
+        singleTapRecognizer.require(toFail: doubleTapRecognizer)
 
-        let recognizers: [UIGestureRecognizer] = [panRecognizer, pinchRecognizer, longPressRecognizer, doubleTapRecognizer]
+        let recognizers: [UIGestureRecognizer] = [panRecognizer, pinchRecognizer, longPressRecognizer, doubleTapRecognizer, singleTapRecognizer]
         for recognizer in recognizers {
             recognizer.delegate = self
             view.addGestureRecognizer(recognizer)
@@ -117,6 +139,28 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     // MARK: Handlers
 
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
+        let location = recognizer.location(in: recognizer.view)
+
+        if recognizer.state == .began {
+            isDrawingGesture = drawingController?.shouldClaimPrimaryGesture(at: location) ?? false
+        }
+
+        if isDrawingGesture {
+            switch recognizer.state {
+            case .began:
+                drawingController?.beginPrimaryGesture(at: location)
+            case .changed:
+                drawingController?.updatePrimaryGesture(at: location)
+                if drawingController?.didSnapLastUpdate == true {
+                    impactLight.impactOccurred()
+                }
+            default:
+                drawingController?.endPrimaryGesture(at: location)
+                isDrawingGesture = false
+            }
+            return
+        }
+
         switch recognizer.state {
         case .began:
             stopAllAnimations()          // sets isScrolling = false via stopMomentum/stopSpring
@@ -143,6 +187,11 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
             state.isScrolling = false
             state.snapToClamped()
         }
+    }
+
+    @objc private func handleSingleTap(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        drawingController?.handleTap(at: recognizer.location(in: recognizer.view))
     }
 
     private func applyTranslation(of recognizer: UIPanGestureRecognizer) {
@@ -205,7 +254,20 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
     // MARK: UIGestureRecognizerDelegate
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        // Neither has anything useful to do mid-draw (design note §2): a pinch can't sensibly
+        // resize a tool that isn't placed yet, and the crosshair has nothing to focus while one
+        // finger is busy drawing.
+        if gestureRecognizer === pinchRecognizer || gestureRecognizer === longPressRecognizer {
+            return drawingController?.activeTool == nil
+        }
         guard gestureRecognizer === panRecognizer else { return true }
+        let location = panRecognizer.location(in: panRecognizer.view)
+        if let drawingController, drawingController.shouldClaimPrimaryGesture(at: location) {
+            // A tool is active, or an existing drawing sits under the touch: any direction counts,
+            // unlike the horizontal-only heuristic below, since a trend line or rectangle is drawn
+            // in whatever direction the person actually drags.
+            return true
+        }
         // Only claim mostly-horizontal drags, so a chart inside a vertical ScrollView still lets the page scroll.
         let velocity = panRecognizer.velocity(in: panRecognizer.view)
         return abs(velocity.x) >= abs(velocity.y)

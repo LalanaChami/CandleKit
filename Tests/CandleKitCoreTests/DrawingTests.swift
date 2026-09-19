@@ -163,6 +163,37 @@ struct DrawingGeometryTests {
         #expect(abs(DrawingGeometry.distanceToRectangleEdge(from: center, corner: corner1, corner2) - 5.0) < 1e-9)
     }
 
+    @Test func timeForPositionRoundTripsThroughPositionFor() {
+        let candles = hourlyCandles
+        for raw in stride(from: -3.0, through: 12.0, by: 0.37) {
+            guard let time = DrawingGeometry.time(forPosition: raw, in: candles) else {
+                Issue.record("expected a time for position \(raw)")
+                continue
+            }
+            guard let position = DrawingGeometry.position(for: time, in: candles) else {
+                Issue.record("expected a position for time \(time)")
+                continue
+            }
+            #expect(abs(position - raw) < 1e-6)
+        }
+    }
+
+    @Test func timeForPositionAtCandleCentersMatchesTheCandle() {
+        let candles = hourlyCandles
+        for index in candles.indices {
+            #expect(DrawingGeometry.time(forPosition: Double(index) + 0.5, in: candles) == candles[index].time)
+        }
+    }
+
+    @Test func timeForPositionIsNilForEmptyCandles() {
+        #expect(DrawingGeometry.time(forPosition: 0, in: []) == nil)
+    }
+
+    @Test func timeForPositionForSingleCandleIsAlwaysThatCandlesTime() {
+        let single = [candle(0)]
+        #expect(DrawingGeometry.time(forPosition: 99, in: single) == single[0].time)
+    }
+
     @Test func distanceToRectangleEdgeWorksRegardlessOfCornerOrder() {
         // `corner1`/`corner2` need not be top-left/bottom-right — any two opposite corners work.
         let bottomRight = DrawingGeometry.Point(x: 10, y: 0)

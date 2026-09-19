@@ -363,30 +363,44 @@ every tool afterwards is comparatively mechanical. Get them right once.
       registered by the app; and a VoiceOver plan that explicitly separates "inspect and adjust an
       existing drawing" (day one) from "construct one without sight" (flagged as its own follow-up,
       not silently dropped).
-      **Only the pure Core model described in the note is actually implemented so far** —
-      `Sources/CandleKitCore/Drawings/` (`Drawing`, `DrawingAnchor`, `DrawingKind`, `DrawingTool`,
-      `DrawingStyle`, `DrawingColor`) plus `DrawingGeometry` (anchor↔position mapping via `Viewport`,
-      distance-to-segment/line/ray/rectangle-edge hit testing), all `Codable`, UI-framework-free, and
-      unit-tested on Linux like the rest of `CandleKitCore`. **Not yet implemented:** the renderer,
-      `DrawingController`, the `ChartGestureCoordinator` mode-switch integration itself, and the
-      Tier 1 tool set (6.3) — deliberately sequenced after the design note rather than alongside it,
-      since §2 of the note touches the same gesture coordinator a lot of hard-won pan/pinch/momentum
-      correctness already lives in.
-- [ ] **6.2 Magnet / snapping.** Design captured in the note's §7 (screen-space radius, OHLC
-      candidates, per-chart not per-drawing config) — not yet implemented; depends on 6.1's
-      remaining gesture-integration work landing first.
+      **Landed beyond the pure Core model:** the renderer (`DrawingsLayer`/`DrawingsLayerRenderer`),
+      `DrawingController` (creation-in-progress state, selection, hit testing, snapping), the
+      `ChartGestureCoordinator` mode-switch integration itself, and the public
+      `.drawings($drawings)` / `.drawingTool($activeTool)` API on `CandlestickChart`. **Known gaps in
+      this first pass, called out explicitly rather than silently dropped:**
+      - Moving a selected drawing translates the whole shape by the drag delta; per-anchor resize
+        handles (dragging just one endpoint) are a fast follow.
+      - `.textNote` has no in-chart text-entry UI yet — a tap places one with a placeholder ("Note"),
+        and an app is expected to offer its own way to edit `Drawing.text` for now (a sheet, an
+        inspector) until CandleKit grows one.
+      - The VoiceOver *construction* flow the note's §6 flags as a follow-up is still just that — a
+        follow-up. Inspecting and adjusting an existing drawing via VoiceOver is not yet built either;
+        only the plan for it exists.
+      - Not verified in an iOS build or on a device — same caveat as everything else added this way
+        in this codebase without a Swift toolchain available to compile or run it.
+- [x] **6.2 Magnet / snapping** — implemented per the note's §7: `DrawingController.snappingEnabled`
+      (default `true`) and `snapRadius` (default 14pt), snapping a placed or dragged anchor to the
+      nearest visible candle's open/high/low/close within that radius, with the existing `impactLight`
+      haptic firing on each new snap target. Not yet verified on a device.
 
 ### Catalog
 
-- [ ] **6.3 Tier 1:** horizontal line, horizontal ray, vertical line, trend line, ray, rectangle,
-      Fibonacci retracement, text note, and a measure tool (drag to read price Δ, % Δ, bar count and
-      elapsed time). These cover the overwhelming majority of real chart annotation.
+- [x] **6.3 Tier 1 (mostly):** horizontal line, horizontal ray, vertical line, trend line, ray,
+      rectangle, Fibonacci retracement, and text note are implemented — rendering, hit testing, and
+      creation via the gesture integration above. **The measure tool is not implemented.** It's
+      transient and non-persisted, unlike every other Tier 1 tool (it was never modeled in
+      `DrawingKind`, per the design note's own framing of it as closer to the crosshair than to a
+      saved drawing), so it needs its own small piece of UI state rather than fitting the
+      `DrawingController`/`Drawing` machinery built for the other eight — left for a follow-up rather
+      than forced into this pass's shape.
 - [ ] **6.4 Tier 2:** parallel channel, ellipse, triangle, Fibonacci extension / fan / time zones,
       Andrews' pitchfork, long and short position tools (entry/target/stop with risk-reward
       readout), arrow, and callout.
 
-**Exit criteria:** drawings survive history prepends and timeframe switches, round-trip through
-`Codable` without loss, and are fully operable under VoiceOver.
+**Exit criteria:** drawings survive history prepends and timeframe switches (done — anchors are
+`(Date, price)`, looked up against the current candle array on every render), round-trip through
+`Codable` without loss (done, unit-tested), and are fully operable under VoiceOver (not done — see
+6.1's gaps above).
 
 ---
 

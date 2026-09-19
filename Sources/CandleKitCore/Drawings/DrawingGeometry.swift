@@ -56,6 +56,43 @@ public enum DrawingGeometry {
         return Double(low - 1) + 0.5 + fraction
     }
 
+    /// The inverse of `position(for:in:)`: given a fractional index-based position, returns the
+    /// `Date` a new anchor placed there should carry. Used while a drawing tool is tracking a live
+    /// touch — the touch lands at a screen x, `Viewport.position(atX:width:)` turns that into a
+    /// fractional position, and this turns the position back into the `(Date, price)` an anchor is
+    /// actually stored as (§1.1 — anchors are never candle indices). Mirrors `position(for:in:)`'s
+    /// three cases exactly, so a value round-trips through `position(for:in:)` and back to (within
+    /// floating-point tolerance) the same position.
+    ///
+    /// `nil` only when `candles` is empty.
+    public static func time(forPosition position: Double, in candles: [Candle]) -> Date? {
+        guard !candles.isEmpty else { return nil }
+        guard candles.count > 1 else { return candles[0].time }
+
+        let count = candles.count
+        if position <= 0.5 {
+            let first = candles[0].time.timeIntervalSince1970
+            let second = candles[1].time.timeIntervalSince1970
+            let step = second - first
+            return Date(timeIntervalSince1970: first + (position - 0.5) * step)
+        }
+        if position >= Double(count) - 0.5 {
+            let last = candles[count - 1].time.timeIntervalSince1970
+            let secondLast = candles[count - 2].time.timeIntervalSince1970
+            let step = last - secondLast
+            return Date(timeIntervalSince1970: last + (position - (Double(count - 1) + 0.5)) * step)
+        }
+
+        // `position` falls strictly between two candle centers; find the earlier one and
+        // interpolate. Clamping the raw `floor` keeps this well-defined at the boundaries between
+        // the three cases above, where floating-point rounding could otherwise land one index off.
+        let lowIndex = min(max(Int((position - 0.5).rounded(.down)), 0), count - 2)
+        let before = candles[lowIndex].time.timeIntervalSince1970
+        let after = candles[lowIndex + 1].time.timeIntervalSince1970
+        let fraction = position - (Double(lowIndex) + 0.5)
+        return Date(timeIntervalSince1970: before + fraction * (after - before))
+    }
+
     // MARK: - Hit testing
 
     /// A plain 2D point. `CandleKitCore` has no `CGPoint` — Linux has no CoreGraphics — so this is

@@ -28,6 +28,10 @@ public struct CandlestickChart: View {
     private var fractionDigits: Int?
     private var crosshairHandler: ((Candle?) -> Void)?
     private var oldestCandleHandler: (() -> Void)?
+    private var drawingsBinding: Binding<[Drawing]>?
+    private var drawingToolBinding: Binding<DrawingTool?>?
+    private var selectedDrawingBinding: Binding<UUID?>?
+    @State private var drawingController = DrawingController()
 
     /// - Parameters:
     ///   - candles: The series to draw, oldest first.
@@ -51,6 +55,16 @@ public struct CandlestickChart: View {
         let state = externalState ?? internalState
         let _ = state.setHandlers(crosshair: crosshairHandler, oldestCandle: oldestCandleHandler)
         let headerDigits = fractionDigits ?? PriceScale.suggestedFractionDigits(forPrice: candles.last?.close ?? 0)
+        // Only mutates @ObservationIgnored properties (see `DrawingController.attach`), so — like
+        // `setHandlers` above — this is safe to call directly from inside body every pass.
+        let _ = drawingController.attach(
+            drawings: drawingsBinding,
+            tool: drawingToolBinding,
+            selection: selectedDrawingBinding,
+            frame: { state.currentFrame },
+            defaultStyle: { DrawingStyle() }
+        )
+        let drawingsValue = drawingsBinding?.wrappedValue ?? []
 
         VStack(alignment: .leading, spacing: 8) {
             if showsHeader && !candles.isEmpty {
@@ -90,9 +104,15 @@ public struct CandlestickChart: View {
                     PriceAxisGlassPanel(state: state, style: style)
                     CrosshairLayer(state: state, style: style)
                     LastPriceBadge(state: state, candles: candles, style: style)
-                    ChartGestureView(state: state)
-                        .frame(width: content.width, height: content.height)
-                        .position(x: content.midX, y: content.midY)
+                    if drawingsBinding != nil {
+                        DrawingsLayer(state: state, controller: drawingController, drawings: drawingsValue)
+                    }
+                    ChartGestureView(
+                        state: state,
+                        drawingController: drawingsBinding != nil ? drawingController : nil
+                    )
+                    .frame(width: content.width, height: content.height)
+                    .position(x: content.midX, y: content.midY)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("Candlestick chart"))
@@ -386,6 +406,45 @@ extension CandlestickChart {
     public func onReachOldestCandle(_ action: @escaping () -> Void) -> CandlestickChart {
         var copy = self
         copy.oldestCandleHandler = action
+        return copy
+    }
+
+    /// Trend lines, rectangles, Fibonacci retracements and other annotations the person draws on
+    /// the chart. App-owned, the same shape `.indicators([...])` already uses, and for the same
+    /// reason — see `docs/design/drawing-tools.md` for the full design. Omit this modifier and
+    /// drawing tools cost nothing: no extra Canvas layer, no gesture-mode branching in the pan/pinch/
+    /// long-press recognizers.
+    ///
+    /// ```swift
+    /// CandlestickChart(candles)
+    ///     .drawings($drawings)
+    ///     .drawingTool($activeTool)
+    /// ```
+    public func drawings(_ drawings: Binding<[Drawing]>) -> CandlestickChart {
+        var copy = self
+        copy.drawingsBinding = drawings
+        return copy
+    }
+
+    /// Which drawing tool is active, or `nil` for the chart's ordinary pan/zoom/crosshair behavior
+    /// (the default). While a tool is set, a one-finger drag creates a drawing of that kind instead
+    /// of panning the chart, and pinch/long-press are suppressed; releasing commits the drawing and
+    /// the tool stays selected for the next one. Requires `.drawings(...)` to also be attached —
+    /// there is nothing to place a created drawing into otherwise. See the design note's §2 for the
+    /// full interaction model this implements.
+    public func drawingTool(_ tool: Binding<DrawingTool?>) -> CandlestickChart {
+        var copy = self
+        copy.drawingToolBinding = tool
+        return copy
+    }
+
+    /// Mirrors which drawing's id is currently selected (by tapping it, in cursor mode), or `nil`
+    /// when nothing is. One-way, chart → app: use it to show your own inspector or "Delete" button —
+    /// deletion itself is just `drawings.removeAll { $0.id == id }` on your own `.drawings(...)`
+    /// binding, per the design note's §4/§5. Optional; omit it if you don't need to react to selection.
+    public func selectedDrawing(_ selection: Binding<UUID?>) -> CandlestickChart {
+        var copy = self
+        copy.selectedDrawingBinding = selection
         return copy
     }
 }

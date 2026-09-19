@@ -30,9 +30,19 @@ struct MarketView: View {
                 }
                 .pickerStyle(.segmented)
 
-                chart
+                // `feed` streams a new candle (or updates the in-progress one) on every live trade —
+                // often several times a second. Isolated into its own `View` (below) so that reading
+                // `feed.candles` doesn't taint *this* body's own Observation scope: before this was
+                // split out, `feed.candles` was read directly here (via this same chart content and
+                // a `.animation(value: feed.candles.isEmpty)`), which meant every trade re-evaluated
+                // all of `MarketView.body` — including `optionsMenu` below, even though its own
+                // content never reads `feed` at all. That's what looked like "the menu always gets
+                // refreshed": the toolbar's `Menu` was being torn down and rebuilt on every tick,
+                // since it was inlined as a plain computed property in the same body. See
+                // `JumpToLatestButton` further down for the same isolation principle already
+                // established elsewhere in this file.
+                MarketChartSection(feed: feed, chartState: chartState, product: product, indicators: indicators, showsVolume: showsVolume, attempt: $attempt, source: $source)
                     .frame(maxHeight: .infinity)
-                    .animation(.easeInOut(duration: 0.15), value: feed.candles.isEmpty)
 
                 footer
             }
@@ -44,13 +54,66 @@ struct MarketView: View {
                     FeedStatusBadge(status: feed.status, source: source)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    optionsMenu
+                    ChartOptionsMenu(
+                        source: $source,
+                        product: $product,
+                        showsSMA: $showsSMA,
+                        showsEMA: $showsEMA,
+                        showsBollinger: $showsBollinger,
+                        showsVWAP: $showsVWAP,
+                        showsVolume: $showsVolume,
+                        showsRSI: $showsRSI,
+                        showsMACD: $showsMACD,
+                        chartState: chartState
+                    )
                 }
             }
         }
         .task(id: configuration) {
             await feed.run(configuration)
         }
+    }
+
+    private var footer: some View {
+        VStack(spacing: 4) {
+            Text("Drag to scroll, pinch to zoom, long-press to inspect, double-tap to reset.")
+            Text(source == .coinbase ? "Market data from the Coinbase Exchange public API." : "Simulated prices, not real market data.")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+    }
+
+    private var indicators: [ChartIndicator] {
+        var result: [ChartIndicator] = []
+        if showsSMA { result.append(.sma(20)) }
+        if showsEMA { result.append(.ema(50, color: .blue)) }
+        // Exercises the multi-plot and fill paths, which a plain moving average never touches.
+        if showsBollinger { result.append(.bollingerBands()) }
+        if showsVWAP { result.append(.vwap()) }
+        // These draw in their own panes below the candles.
+        if showsRSI { result.append(.rsi(14)) }
+        if showsMACD { result.append(.macd()) }
+        return result
+    }
+}
+
+/// Everything that depends on `feed.candles` — which changes on every live trade — lives here, in
+/// its own `View`. That scopes the resulting high-frequency re-renders to just this chart, instead
+/// of to the whole of `MarketView.body` (and, with it, the toolbar's menu). See the comment where
+/// this is used above for the bug this fixes.
+private struct MarketChartSection: View {
+    let feed: MarketFeed
+    let chartState: CandleChartState
+    let product: Product
+    let indicators: [ChartIndicator]
+    let showsVolume: Bool
+    @Binding var attempt: Int
+    @Binding var source: DataSourceKind
+
+    var body: some View {
+        chart
+            .animation(.easeInOut(duration: 0.15), value: feed.candles.isEmpty)
     }
 
     // When candles.isEmpty flips, the .animation modifier above crossfades between
@@ -99,18 +162,27 @@ struct MarketView: View {
         guard feed.candles.isEmpty, case let .failed(message) = feed.status else { return nil }
         return message
     }
+}
 
-    private var footer: some View {
-        VStack(spacing: 4) {
-            Text("Drag to scroll, pinch to zoom, long-press to inspect, double-tap to reset.")
-            Text(source == .coinbase ? "Market data from the Coinbase Exchange public API." : "Simulated prices, not real market data.")
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-    }
+/// The toolbar's "Chart options" menu, as its own `View` rather than a computed property inlined
+/// into `MarketView.body`. Its own content never reads `feed`, so on its own this wasn't the source
+/// of the "menu keeps refreshing" bug — `MarketView.body` re-evaluating on every trade tick was —
+/// but keeping it as a dedicated view (bindings only, no observed model) is what lets SwiftUI treat
+/// it as unchanged, and its open `Menu` popover undisturbed, whenever an ancestor's body does still
+/// re-run for an unrelated reason.
+private struct ChartOptionsMenu: View {
+    @Binding var source: DataSourceKind
+    @Binding var product: Product
+    @Binding var showsSMA: Bool
+    @Binding var showsEMA: Bool
+    @Binding var showsBollinger: Bool
+    @Binding var showsVWAP: Bool
+    @Binding var showsVolume: Bool
+    @Binding var showsRSI: Bool
+    @Binding var showsMACD: Bool
+    let chartState: CandleChartState
 
-    private var optionsMenu: some View {
+    var body: some View {
         Menu {
             Picker("Data", selection: $source) {
                 ForEach(DataSourceKind.allCases) { kind in
@@ -141,19 +213,6 @@ struct MarketView: View {
         } label: {
             Label("Chart options", systemImage: "slider.horizontal.3")
         }
-    }
-
-    private var indicators: [ChartIndicator] {
-        var result: [ChartIndicator] = []
-        if showsSMA { result.append(.sma(20)) }
-        if showsEMA { result.append(.ema(50, color: .blue)) }
-        // Exercises the multi-plot and fill paths, which a plain moving average never touches.
-        if showsBollinger { result.append(.bollingerBands()) }
-        if showsVWAP { result.append(.vwap()) }
-        // These draw in their own panes below the candles.
-        if showsRSI { result.append(.rsi(14)) }
-        if showsMACD { result.append(.macd()) }
-        return result
     }
 }
 

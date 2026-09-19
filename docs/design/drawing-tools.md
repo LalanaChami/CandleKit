@@ -242,11 +242,33 @@ means "don't corrupt or crash," not "reproject visually across timeframes"), rou
 
 ## What's implemented as of this note
 
-Only the pure, `Codable`, UI-framework-free model described in §1.1 —
-`Sources/CandleKitCore/Drawings/` (`Drawing`, `DrawingAnchor`, `DrawingKind`, `DrawingStyle`), plus
-the geometry math §3 depends on (distance-to-segment hit testing, anchor↔screen-position conversion
-via `Viewport`) — all unit-tested on Linux like the rest of `CandleKitCore`. The gesture-coexistence
-work in §2, the renderer, `DrawingController`, and the Tier 1 tool set (6.3) are the next pass,
-deliberately sequenced after this note rather than alongside it — §2 in particular touches the same
-`ChartGestureCoordinator` that a lot of hard-won pan/pinch/momentum/rubber-band correctness already
-lives in, and deserves review of the interaction model above before code changes that risk it.
+The pure, `Codable`, UI-framework-free model described in §1.1 — `Sources/CandleKitCore/Drawings/`
+(`Drawing`, `DrawingAnchor`, `DrawingKind`, `DrawingTool`, `DrawingStyle`, `DrawingColor`), plus the
+geometry math §3 depends on (distance-to-segment/line/ray/rectangle-edge hit testing, anchor↔position
+conversion via `Viewport`, and its inverse, position↔anchor) — all unit-tested on Linux like the rest
+of `CandleKitCore`.
+
+On top of that, the UI-layer pieces originally deferred: `DrawingsLayer`/`DrawingsLayerRenderer` (the
+renderer), `DrawingScreenMapping` (the shared anchor↔pixel conversion the renderer and hit testing
+both use, so they can't disagree — the same role `CandleGeometry` plays for candle bodies),
+`DrawingController` (creation-in-progress state, selection, whole-drawing move, snapping per §7), the
+`ChartGestureCoordinator` mode-switch integration from §2 (a new `drawingController` property, a
+guarded branch in the pan handler decided once at gesture-began time, pinch/long-press refusing to
+begin while a tool is active, and a new single-tap recognizer required to fail against the existing
+double-tap), and the public `.drawings($drawings)` / `.drawingTool($activeTool)` API on
+`CandlestickChart`. Eight of Tier 1's nine tools (6.3) are implemented this way; the measure tool
+is not (see the roadmap's 6.3 entry for why it doesn't fit this same shape).
+
+**Deliberately scoped out of this pass, not silently missing:**
+- **Per-anchor resize.** Moving a selected drawing in cursor mode translates every anchor by the same
+  delta; dragging a single endpoint to reshape a drawing (distinct from moving the whole thing) needs
+  its own hit-testing pass against each anchor's 16pt handle and is a fast follow.
+- **Text entry for `.textNote`.** A tap places one with placeholder text; CandleKit doesn't yet offer
+  an in-chart text field or sheet to edit `Drawing.text`; an app wanting live text entry needs to
+  build that itself against the exposed `Drawing` model for now.
+- **VoiceOver**, both halves of §6 — inspecting/adjusting an existing drawing (the must-have) and
+  constructing one (the flagged follow-up) are both still just the plan in §6, not code.
+- **Verification.** Like everything else built in this codebase without a Swift toolchain available
+  to compile or run it, this is unverified in an iOS build or on a device — reviewed carefully by
+  hand, cross-checked with independent reference math where the logic allowed it (the anchor↔position
+  round-trip in particular), but not run.
