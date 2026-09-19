@@ -6,6 +6,64 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added — Tier 2 indicator catalog (roadmap 5.6/5.7)
+
+Twelve new indicators, closing out the Tier 2 catalog the roadmap laid out (Volume Profile
+deliberately excluded — see below):
+
+- **Trend overlays:** Donchian Channels, Keltner Channels, SuperTrend, Parabolic SAR, Ichimoku
+  Cloud, Pivot Points (classic/Fibonacci/Camarilla).
+- **Oscillators:** ADX/DMI, Commodity Channel Index, Money Flow Index, Williams %R, Rate of
+  Change/Momentum (one indicator, a mode switch), Chaikin Money Flow.
+- All twelve are `Indicator` conformances over new `IndicatorMath` functions
+  (`IndicatorMathTier2.swift`), each documenting its convention the same way Tier 1 does. Reach them
+  through `IndicatorCatalog.full` (standard + Tier 2) or the new `ChartIndicator` factories
+  (`.donchianChannels()`, `.superTrend()`, `.adx()`, etc.).
+- **The renderer's fill drawing gained real crossover-coloring support** (`IndicatorFill.colorFollowsCrossover`
+  existed in the model since 5.1 but was never actually implemented — `BaseLayerRenderer.drawFills`
+  always used one fixed color). Ichimoku's cloud needs this to flip between bullish and bearish
+  tinting as Span A crosses Span B, so this pass implements it: a fill run splits wherever the two
+  plots' raw values cross, each side colored independently. Every other fill (Bollinger, Donchian,
+  Keltner) is unaffected — they don't set `colorFollowsCrossover`, so they take the same single-color
+  path as before.
+- **Known gap, documented rather than silently accepted:** Ichimoku's Senkou spans don't yet project
+  past the most recent candle into blank future space, the way a real Ichimoku cloud does — the
+  per-candle array model has no representation for a position beyond the data. Extending a pane past
+  the last candle is a renderer-level change; tracked as roadmap follow-up.
+- **Volume Profile deliberately not implemented.** As the roadmap already flagged, it's a horizontal
+  histogram binned by price rather than a per-candle series, and doesn't fit `IndicatorResult`
+  without a new output case — that's its own design task, not something to force into this pass.
+- Cross-checked against an independently written Python reference implementation of each formula
+  (`Tier2IndicatorMathTests.swift`), same policy and same caveat as Tier 1: internally consistent and
+  formula-accurate, not yet validated against a live TradingView chart or another authoritative
+  source (roadmap 5.9, now explicitly covering Tier 2 too).
+
+### Added — drawing-tools design note and Core model (roadmap 6.1)
+
+- **`docs/design/drawing-tools.md`** — the design note the roadmap calls for before any drawing-tool
+  code: the app-owned `Codable` model anchored to `(Date, price)`, the `.drawings()`/`.drawingTool()`
+  API shape, how a drawing tool's drag coexists with the chart's existing pan/pinch/long-press
+  (a mode switch on the same `ChartGestureCoordinator`, not simultaneous gesture recognition), hit
+  testing tolerances, z-order/lock/visibility, `UndoManager`-based undo, and a VoiceOver plan.
+- **Only the pure model is implemented so far**, deliberately — `Sources/CandleKitCore/Drawings/`:
+  `Drawing`, `DrawingAnchor`, `DrawingKind`, `DrawingTool`, `DrawingStyle`, `DrawingColor` (all
+  `Codable`, no UI-framework dependency, same as the indicator model), plus `DrawingGeometry` for
+  the math hit testing and anchor placement need — mapping a `Date` anchor onto the chart's
+  index-based viewport position (exact match, interpolation between candles, or edge extrapolation),
+  and distance-to-segment/infinite-line/ray/rectangle-edge for hit testing. All unit-tested on Linux.
+- **The renderer, `DrawingController`, the actual gesture-coordinator mode switch, and the Tier 1
+  tool set are not part of this pass.** They're sequenced next, on purpose: the gesture integration
+  touches the same `ChartGestureCoordinator` that a lot of previously hard-won pan/pinch/momentum/
+  rubber-band correctness lives in, and the design note's interaction model is worth having settled
+  before code that risks it.
+
+### Verification
+
+Neither of the two additions above has been run in an iOS build yet — the indicator catalog needs a
+device check the same way every rendering-adjacent change in this project does, and the drawing
+model, being pure Foundation with no rendering or gesture code at all, has only been reasoned through
+and unit-tested, not exercised against a real chart (there's nothing to render yet).
+
 ### Fixed — crosshair dulling moved into the real candle draw call, fixing alignment drift
 
 Follow-up to the previous round's fix (which stopped the crosshair from dimming the whole plot and confined it to candle shapes only): that version drew the dimmed shapes as a *separate* overlay, recomputing each candle's outline independently of `BaseLayerRenderer`'s own pixel-snapped geometry. The two calculations agreed closely but not exactly, and the small, zoom-dependent gap between them was visible as the gray shapes drifting slightly out of alignment with the real candles underneath — worse at some zoom levels than others, and generally reading as a bug rather than an effect.

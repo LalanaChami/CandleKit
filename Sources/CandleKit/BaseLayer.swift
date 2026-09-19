@@ -546,41 +546,60 @@ struct BaseLayerRenderer {
         in context: inout GraphicsContext
     ) {
         for fill in indicator.result.fills {
-            guard let lower = indicator.result.plot(fill.lowerPlotKey)?.values,
-                  let upper = indicator.result.plot(fill.upperPlotKey)?.values else { continue }
+            guard let lowerPlot = indicator.result.plot(fill.lowerPlotKey)?.values,
+                  let upperPlot = indicator.result.plot(fill.upperPlotKey)?.values else { continue }
 
-            var path = Path()
-            var run: [(x: CGFloat, lower: CGFloat, upper: CGFloat)] = []
+            // Kept as raw data values, not y-coordinates, until a run is actually drawn — a
+            // crossover fill (Ichimoku's cloud) needs to compare which side is numerically on top
+            // at each index, and that comparison has to happen before `mapping.y` (which flips the
+            // ordering, since a higher price maps to a smaller y).
+            var run: [(x: CGFloat, lower: Double, upper: Double)] = []
+            var runIsBullish: Bool? = nil
 
             func flush() {
-                guard run.count > 1 else { run.removeAll(); return }
-                path.move(to: CGPoint(x: run[0].x, y: run[0].upper))
+                defer { run.removeAll() }
+                guard run.count > 1, let runIsBullish else { return }
+                var path = Path()
+                path.move(to: CGPoint(x: run[0].x, y: mapping.y(run[0].upper)))
                 for point in run.dropFirst() {
-                    path.addLine(to: CGPoint(x: point.x, y: point.upper))
+                    path.addLine(to: CGPoint(x: point.x, y: mapping.y(point.upper)))
                 }
                 for point in run.reversed() {
-                    path.addLine(to: CGPoint(x: point.x, y: point.lower))
+                    path.addLine(to: CGPoint(x: point.x, y: mapping.y(point.lower)))
                 }
                 path.closeSubpath()
-                run.removeAll()
+                // Only a crossover fill's colour depends on which side is on top; an ordinary fill
+                // (Bollinger, Donchian, Keltner) always uses its one configured role, unaffected by
+                // this branch even though `runIsBullish` is still tracked for it.
+                let color = fill.colorFollowsCrossover
+                    ? indicator.color(for: runIsBullish ? .bullish : .bearish)
+                    : indicator.color(for: fill.colorRole)
+                context.fill(path, with: .color(color.opacity(fill.opacity)))
             }
 
             for index in frame.lineRange {
-                guard index < lower.count, index < upper.count,
-                      let low = lower[index], let high = upper[index],
+                guard index < lowerPlot.count, index < upperPlot.count,
+                      let low = lowerPlot[index], let high = upperPlot[index],
                       low.isFinite, high.isFinite else {
                     flush()
+                    runIsBullish = nil
                     continue
                 }
-                run.append((
-                    x: frame.centerX(ofCandle: index),
-                    lower: mapping.y(low),
-                    upper: mapping.y(high)
-                ))
+                let point = (x: frame.centerX(ofCandle: index), lower: low, upper: high)
+                let bullish = high >= low
+
+                if fill.colorFollowsCrossover, let currentBullish = runIsBullish, bullish != currentBullish {
+                    // End the run exactly at the crossing point so the two colours meet with no
+                    // gap between them, then start the next run from that same point.
+                    run.append(point)
+                    flush()
+                    run = [point]
+                } else {
+                    run.append(point)
+                }
+                runIsBullish = bullish
             }
             flush()
-
-            context.fill(path, with: .color(indicator.color(for: fill.colorRole).opacity(fill.opacity)))
         }
     }
 

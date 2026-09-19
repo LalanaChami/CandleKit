@@ -176,6 +176,64 @@ public struct ChartIndicator: Identifiable {
     public static func obv() -> ChartIndicator {
         ChartIndicator(OBVIndicator())
     }
+
+    // MARK: Tier 2
+
+    public static func donchianChannels(period: Int = 20) -> ChartIndicator {
+        ChartIndicator(DonchianChannelsIndicator(period: period))
+    }
+
+    public static func keltnerChannels(period: Int = 20, atrPeriod: Int = 10, multiplier: Double = 2) -> ChartIndicator {
+        ChartIndicator(KeltnerChannelsIndicator(period: period, atrPeriod: atrPeriod, multiplier: multiplier))
+    }
+
+    public static func superTrend(period: Int = 10, multiplier: Double = 3) -> ChartIndicator {
+        ChartIndicator(SuperTrendIndicator(period: period, multiplier: multiplier))
+    }
+
+    public static func parabolicSAR(step: Double = 0.02, maximum: Double = 0.2) -> ChartIndicator {
+        ChartIndicator(ParabolicSARIndicator(step: step, maximum: maximum))
+    }
+
+    public static func ichimokuCloud(
+        conversionPeriod: Int = 9,
+        basePeriod: Int = 26,
+        spanBPeriod: Int = 52,
+        displacement: Int = 26
+    ) -> ChartIndicator {
+        ChartIndicator(IchimokuCloudIndicator(
+            conversionPeriod: conversionPeriod, basePeriod: basePeriod,
+            spanBPeriod: spanBPeriod, displacement: displacement
+        ))
+    }
+
+    public static func pivotPoints(method: IndicatorMath.PivotMethod = .classic) -> ChartIndicator {
+        ChartIndicator(PivotPointsIndicator(method: method))
+    }
+
+    public static func adx(_ period: Int = 14) -> ChartIndicator {
+        ChartIndicator(ADXIndicator(period: period))
+    }
+
+    public static func cci(_ period: Int = 20) -> ChartIndicator {
+        ChartIndicator(CCIIndicator(period: period))
+    }
+
+    public static func mfi(_ period: Int = 14) -> ChartIndicator {
+        ChartIndicator(MFIIndicator(period: period))
+    }
+
+    public static func williamsR(_ period: Int = 14) -> ChartIndicator {
+        ChartIndicator(WilliamsRIndicator(period: period))
+    }
+
+    public static func rateOfChange(period: Int = 12, mode: ROCIndicator.Mode = .percentage) -> ChartIndicator {
+        ChartIndicator(ROCIndicator(period: period, mode: mode))
+    }
+
+    public static func chaikinMoneyFlow(_ period: Int = 20) -> ChartIndicator {
+        ChartIndicator(ChaikinMoneyFlowIndicator(period: period))
+    }
 }
 
 /// One indicator's computed output plus the colours its roles resolved to, ready to draw.
