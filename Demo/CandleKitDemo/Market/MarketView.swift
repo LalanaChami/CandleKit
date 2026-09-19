@@ -18,6 +18,14 @@ struct MarketView: View {
     @State private var showsMACD = false
     @State private var showsVolume = true
 
+    // Drawing tools (roadmap 6.1–6.3). `drawings` is the app-owned array CandleKit renders and
+    // mutates through `.drawings($drawings)`; `activeDrawingTool` is which tool, if any, a
+    // one-finger drag currently creates; `selectedDrawingID` mirrors what's selected in cursor mode
+    // (tapping an existing drawing), which `DrawingToolPicker`'s "Delete" button below reads.
+    @State private var drawings: [Drawing] = []
+    @State private var activeDrawingTool: DrawingTool? = nil
+    @State private var selectedDrawingID: UUID? = nil
+
     var body: some View {
         let configuration = FeedConfiguration(source: source, product: product, timeframe: timeframe, attempt: attempt)
 
@@ -30,6 +38,8 @@ struct MarketView: View {
                 }
                 .pickerStyle(.segmented)
 
+                DrawingToolPicker(activeTool: $activeDrawingTool, drawings: $drawings, selectedDrawingID: $selectedDrawingID)
+
                 // `feed` streams a new candle (or updates the in-progress one) on every live trade —
                 // often several times a second. Isolated into its own `View` (below) so that reading
                 // `feed.candles` doesn't taint *this* body's own Observation scope: before this was
@@ -41,8 +51,19 @@ struct MarketView: View {
                 // since it was inlined as a plain computed property in the same body. See
                 // `JumpToLatestButton` further down for the same isolation principle already
                 // established elsewhere in this file.
-                MarketChartSection(feed: feed, chartState: chartState, product: product, indicators: indicators, showsVolume: showsVolume, attempt: $attempt, source: $source)
-                    .frame(maxHeight: .infinity)
+                MarketChartSection(
+                    feed: feed,
+                    chartState: chartState,
+                    product: product,
+                    indicators: indicators,
+                    showsVolume: showsVolume,
+                    attempt: $attempt,
+                    source: $source,
+                    drawings: $drawings,
+                    activeDrawingTool: $activeDrawingTool,
+                    selectedDrawingID: $selectedDrawingID
+                )
+                .frame(maxHeight: .infinity)
 
                 footer
             }
@@ -110,6 +131,9 @@ private struct MarketChartSection: View {
     let showsVolume: Bool
     @Binding var attempt: Int
     @Binding var source: DataSourceKind
+    @Binding var drawings: [Drawing]
+    @Binding var activeDrawingTool: DrawingTool?
+    @Binding var selectedDrawingID: UUID?
 
     var body: some View {
         chart
@@ -149,6 +173,9 @@ private struct MarketChartSection: View {
             .candleChartStyle(CandleChartStyle(priceAxisMaterial: .ultraThinMaterial))
             .indicators(indicators)
             .volumeVisible(showsVolume)
+            .drawings($drawings)
+            .drawingTool($activeDrawingTool)
+            .selectedDrawing($selectedDrawingID)
             .onReachOldestCandle { feed.loadOlder() }
             .overlay(alignment: .bottomTrailing) {
                 // Clears the price and time axes.
@@ -161,6 +188,76 @@ private struct MarketChartSection: View {
     private var failureMessage: String? {
         guard feed.candles.isEmpty, case let .failed(message) = feed.status else { return nil }
         return message
+    }
+}
+
+/// Picks which drawing tool a one-finger drag creates (see `docs/design/drawing-tools.md` §2), or
+/// goes back to the ordinary cursor/pan behavior with `nil`. Text-labeled rather than icon-only, to
+/// keep this demo screen free of guessing at SF Symbol names. Its own content never reads `feed`, so
+/// — like `ChartOptionsMenu` — it doesn't retrigger on a live trade.
+private struct DrawingToolPicker: View {
+    @Binding var activeTool: DrawingTool?
+    @Binding var drawings: [Drawing]
+    @Binding var selectedDrawingID: UUID?
+
+    // Tier 1, in the order the roadmap lists them. The measure tool isn't here — it isn't
+    // implemented yet (see the roadmap's 6.3 entry for why it doesn't fit this same model).
+    private static let tools: [(tool: DrawingTool, label: String)] = [
+        (.horizontalLine, "H-Line"),
+        (.horizontalRay, "H-Ray"),
+        (.verticalLine, "V-Line"),
+        (.trendLine, "Trend"),
+        (.ray, "Ray"),
+        (.rectangle, "Rect"),
+        (.fibonacciRetracement, "Fib"),
+        (.textNote, "Note"),
+    ]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                cursorButton
+                ForEach(Self.tools, id: \.tool) { entry in
+                    toolButton(entry.tool, label: entry.label)
+                }
+                if selectedDrawingID != nil {
+                    Divider().frame(height: 20)
+                    Button("Delete", role: .destructive) {
+                        drawings.removeAll { $0.id == selectedDrawingID }
+                        selectedDrawingID = nil
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                if !drawings.isEmpty {
+                    Button("Clear all") {
+                        drawings.removeAll()
+                        selectedDrawingID = nil
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+    }
+
+    private var cursorButton: some View {
+        Button("Cursor") { activeTool = nil }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(activeTool == nil ? .accentColor : .secondary)
+    }
+
+    private func toolButton(_ tool: DrawingTool, label: String) -> some View {
+        Button(label) {
+            // Tapping the already-active tool again is the "done drawing" exit back to cursor mode
+            // the design note calls for, instead of a separate dedicated button for it.
+            activeTool = (activeTool == tool) ? nil : tool
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .tint(activeTool == tool ? .accentColor : .secondary)
     }
 }
 
