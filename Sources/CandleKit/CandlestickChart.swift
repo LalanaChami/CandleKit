@@ -124,6 +124,12 @@ private struct ChartContentLayer: View {
 
     var body: some View {
         let _ = state.revision
+        // Also reads `crosshairIndex` (not `crosshairY`, which changes on every pixel of finger
+        // movement within the same candle and doesn't affect which candle should look dulled).
+        // `crosshairIndex` only changes when the crosshair engages, disengages, or crosses to a
+        // different candle — far less often than a scroll's `revision` bumps — so this doesn't add
+        // a new source of high-frequency redraws, just a narrow one this view already updates for.
+        let focusedCandleIndex = state.crosshairIndex
         let frame = state.makeFrame(
             candles: candles,
             indicators: indicators,
@@ -133,7 +139,7 @@ private struct ChartContentLayer: View {
             showsVolume: showsVolume,
             fractionDigits: fractionDigits
         )
-        ChartBaseLayer(frame: frame, style: style, appearPhase: state.appearPhase)
+        ChartBaseLayer(frame: frame, style: style, appearPhase: state.appearPhase, focusedCandleIndex: focusedCandleIndex)
     }
 }
 

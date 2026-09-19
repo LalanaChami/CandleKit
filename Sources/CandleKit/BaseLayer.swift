@@ -6,11 +6,20 @@ struct ChartBaseLayer: View {
     let frame: ChartFrame
     let style: CandleChartStyle
     let appearPhase: Double
+    /// The candle under the crosshair, or `nil` when no crosshair is up. Every other visible
+    /// candle draws a touch duller while this is set — see `BaseLayerRenderer.drawCandles`.
+    var focusedCandleIndex: Int? = nil
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         Canvas { context, _ in
-            let renderer = BaseLayerRenderer(frame: frame, style: style, pixels: PixelGrid(scale: displayScale), appearPhase: appearPhase)
+            let renderer = BaseLayerRenderer(
+                frame: frame,
+                style: style,
+                pixels: PixelGrid(scale: displayScale),
+                appearPhase: appearPhase,
+                focusedCandleIndex: focusedCandleIndex
+            )
             renderer.draw(in: &context)
         }
         .allowsHitTesting(false)
@@ -23,6 +32,8 @@ struct BaseLayerRenderer {
     let pixels: PixelGrid
     /// 0 = all candles hidden (start of appear animation), 1 = fully visible (steady state).
     let appearPhase: Double
+    /// The candle under the crosshair, or `nil` when no crosshair is up.
+    var focusedCandleIndex: Int? = nil
 
     /// Number of quantised opacity levels used by the appear animation. Bucket 0 is invisible, so
     /// this gives 7 visible steps across a fade zone only a couple of candles wide.
@@ -124,6 +135,13 @@ struct BaseLayerRenderer {
 
     /// Candles are batched into a handful of paths, so the draw-call count is constant
     /// no matter how many candles are on screen.
+    ///
+    /// When a crosshair is up, every candle *except* the focused one is batched separately and
+    /// filled at reduced opacity instead of its normal, full-strength color — the "little dull"
+    /// look a hovered candle should stand out against. Both batches come from the exact same
+    /// per-candle rectangles (`CandleGeometry.compute`, the same helper the crosshair's own glow
+    /// uses), so which batch a candle lands in is the only thing that changes about it; there's no
+    /// separate overlay shape that could drift out of alignment with what's actually drawn here.
     private func drawCandles(in context: inout GraphicsContext) {
         let (bodyWidth, wickWidth) = widthsInPixels
         let scale = pixels.scale
@@ -133,31 +151,46 @@ struct BaseLayerRenderer {
         var hollowBodies = Path()
         var risingWicks = Path()
         var fallingWicks = Path()
+        // Populated only while a crosshair is up; stay empty (and unused) otherwise.
+        var dimRisingBodies = Path()
+        var dimFallingBodies = Path()
+        var dimHollowBodies = Path()
+        var dimRisingWicks = Path()
+        var dimFallingWicks = Path()
 
         for index in frame.visible {
             let candle = frame.candles[index]
-            let bodyLeft = bodyLeftInPixels(index, bodyWidth: bodyWidth)
-            let wickX = (bodyLeft + (bodyWidth - wickWidth) / 2) / scale
-            let wickPoints = wickWidth / scale
-
-            let highY = pixels.snap(frame.y(forPrice: candle.high))
-            let lowY = pixels.snap(frame.y(forPrice: candle.low))
-            let openY = pixels.snap(frame.y(forPrice: candle.open))
-            let closeY = pixels.snap(frame.y(forPrice: candle.close))
-            let bodyTop = min(openY, closeY)
-            let bodyHeight = max(abs(openY - closeY), pixels.hairline)
-            let body = CGRect(x: bodyLeft / scale, y: bodyTop, width: bodyWidth / scale, height: bodyHeight)
+            let geometry = CandleGeometry.compute(index: index, frame: frame, style: style, pixels: pixels)
+            let body = geometry.body
+            let wick = geometry.wick
+            let isDimmed = focusedCandleIndex != nil && focusedCandleIndex != index
 
             if candle.isBullish && style.hollowUpCandles && drawsBodies {
                 // Hollow candles show the wick only outside the body.
-                risingWicks.addRect(CGRect(x: wickX, y: highY, width: wickPoints, height: max(0, bodyTop - highY)))
-                risingWicks.addRect(CGRect(x: wickX, y: body.maxY, width: wickPoints, height: max(0, lowY - body.maxY)))
-                hollowBodies.addRect(body.insetBy(dx: wickPoints / 2, dy: min(wickPoints / 2, bodyHeight / 2)))
-            } else {
-                let wick = CGRect(x: wickX, y: highY, width: wickPoints, height: max(lowY - highY, pixels.hairline))
-                if candle.isBullish {
+                let upperWick = CGRect(x: wick.minX, y: wick.minY, width: wick.width, height: max(0, body.minY - wick.minY))
+                let lowerWick = CGRect(x: wick.minX, y: body.maxY, width: wick.width, height: max(0, wick.maxY - body.maxY))
+                let hollowBody = body.insetBy(dx: wick.width / 2, dy: min(wick.width / 2, body.height / 2))
+                if isDimmed {
+                    dimRisingWicks.addRect(upperWick)
+                    dimRisingWicks.addRect(lowerWick)
+                    dimHollowBodies.addRect(hollowBody)
+                } else {
+                    risingWicks.addRect(upperWick)
+                    risingWicks.addRect(lowerWick)
+                    hollowBodies.addRect(hollowBody)
+                }
+            } else if candle.isBullish {
+                if isDimmed {
+                    dimRisingWicks.addRect(wick)
+                    if drawsBodies { dimRisingBodies.addRect(body) }
+                } else {
                     risingWicks.addRect(wick)
                     if drawsBodies { risingBodies.addRect(body) }
+                }
+            } else {
+                if isDimmed {
+                    dimFallingWicks.addRect(wick)
+                    if drawsBodies { dimFallingBodies.addRect(body) }
                 } else {
                     fallingWicks.addRect(wick)
                     if drawsBodies { fallingBodies.addRect(body) }
@@ -171,6 +204,21 @@ struct BaseLayerRenderer {
         context.fill(fallingBodies, with: .color(style.downColor))
         if !hollowBodies.isEmpty {
             context.stroke(hollowBodies, with: .color(style.upColor), lineWidth: wickWidth / scale)
+        }
+
+        if focusedCandleIndex != nil {
+            // `crosshairDimOpacity` (default 0.35) is how much duller a non-focused candle gets,
+            // not how dark an overlay on top of it is — reducing the fill's own opacity blends it
+            // toward whatever's behind it (grid, background), reading as a muted, flattened candle
+            // rather than a separate gray shape sitting over a sharp one.
+            let dimOpacity = 1 - max(0, min(1, style.crosshairDimOpacity))
+            context.fill(dimRisingWicks, with: .color(style.upColor.opacity(dimOpacity)))
+            context.fill(dimFallingWicks, with: .color(style.downColor.opacity(dimOpacity)))
+            context.fill(dimRisingBodies, with: .color(style.upColor.opacity(dimOpacity)))
+            context.fill(dimFallingBodies, with: .color(style.downColor.opacity(dimOpacity)))
+            if !dimHollowBodies.isEmpty {
+                context.stroke(dimHollowBodies, with: .color(style.upColor.opacity(dimOpacity)), lineWidth: wickWidth / scale)
+            }
         }
     }
 

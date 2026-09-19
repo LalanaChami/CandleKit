@@ -29,7 +29,7 @@ struct CrosshairLayer: View {
                 // Drawn first so the crosshair lines and tags stay crisp on top of it. Always at
                 // the candle's own (price-scale) position, regardless of which pane the finger is
                 // vertically over — the glow marks *which candle*, not which pane is being read.
-                drawFocusGlow(candleIndex: index, frame: frame, style: style, context: &context)
+                drawFocusGlow(candleIndex: index, frame: frame, style: style, pixels: pixels, context: &context)
 
                 let plot = frame.layout.plot
                 let x = pixels.hairlineCenter(frame.centerX(ofCandle: index))
@@ -95,28 +95,29 @@ struct CrosshairLayer: View {
         }
     }
 
-    /// Darkens the *other* candles and traces a soft, additive rim glow around the focused
-    /// candle's outline, so it draws the eye without covering it up.
+    /// Traces a soft, additive rim glow around the focused candle's outline, so it draws the eye
+    /// without covering it up.
     ///
-    /// **Only candle silhouettes are darkened — nothing else.** The first version dimmed the
-    /// whole plot with a full-coverage scrim and cut a candle-shaped hole out of it, which read as
-    /// the entire chart (grid, background, volume bars, indicator lines) going gray whenever the
-    /// crosshair was up. What should visually recede is the *other candles*, not the chart around
-    /// them, so this fills each non-focused visible candle's own body-and-wick shape with a flat
-    /// dark tint and leaves everything else — background, grid, axes, volume, indicators — alone.
-    /// The tint is filled with no blur and confined to each candle's exact geometry, so it can't
-    /// bleed onto neighboring pixels the way a blurred scrim would.
+    /// **Dulling the other candles is no longer this function's job.** An earlier version filled
+    /// every *other* visible candle's silhouette with a flat dark tint from here, recomputed
+    /// independently of the real candle geometry `BaseLayerRenderer` actually draws. At most zoom
+    /// levels the two calculations landed close enough to look right, but they weren't the same
+    /// numbers, and the mismatch showed up as the dim shapes visibly drifting out of alignment with
+    /// the real candles underneath them. Dulling now happens inside `BaseLayerRenderer.drawCandles`
+    /// itself — the non-focused candles are filled at reduced opacity as part of the very same draw
+    /// call that draws them at full opacity, so there's no second, independently-computed shape
+    /// that could ever disagree with the first.
     ///
-    /// **The focused candle's own glow is stroked, not filled.** The first version of *that*
-    /// filled the candle's own silhouette with a blurred, high-opacity color — which, blended
-    /// additively on top of the real candle drawn underneath, washed the whole shape out into a
-    /// bright blob instead of a highlighted candle. Stroking only the outline puts the bright
-    /// "ink" in a thin band that traces the edge; the interior — where the real candle's colour and
-    /// detail live — is untouched by the glow at all.
+    /// **Stroked, not filled.** The first version of the glow itself filled the candle's own
+    /// silhouette with a blurred, high-opacity color — which, blended additively on top of the real
+    /// candle drawn underneath, washed the whole shape out into a bright blob instead of a
+    /// highlighted candle. Stroking only the outline puts the bright "ink" in a thin band that
+    /// traces the edge; the interior — where the real candle's colour and detail live — is
+    /// untouched by the glow at all.
     ///
-    /// Drawing order is: darken the other candles, then glow the focused one, so the glow is never
-    /// itself dimmed by the layer underneath it, and the crosshair's lines and tags (drawn by the
-    /// caller afterward, on the original `context`, not a copy) are unaffected by either.
+    /// The glow's outline comes from `CandleGeometry.compute`, the same pixel-snapped calculation
+    /// `BaseLayerRenderer` draws the real candle from, so the ring traces the candle's *actual*
+    /// edges rather than a separately-derived approximation of them.
     ///
     /// The glow uses `GraphicsContext.Filter.blur(radius:)` only, deliberately avoiding
     /// `.shadow(...)`'s multi-parameter signature, which hasn't been run to confirm; `.blur` is a
@@ -125,22 +126,26 @@ struct CrosshairLayer: View {
         candleIndex: Int,
         frame: ChartFrame,
         style: CandleChartStyle,
+        pixels: PixelGrid,
         context: inout GraphicsContext
     ) {
         let candle = frame.candles[candleIndex]
         let glowColor = candle.isBullish ? style.upColor : style.downColor
         let outerBlurRadius: CGFloat = 10
-        let shape = candleSilhouette(candleIndex, frame: frame, style: style, expand: 2)
 
-        if style.crosshairDimOpacity > 0 {
-            // Every OTHER visible candle is flattened into one path and filled in a single call,
-            // rather than one fill per candle, so this stays cheap even with a wide viewport.
-            var others = Path()
-            for index in frame.visible where index != candleIndex && frame.candles.indices.contains(index) {
-                others.addPath(candleSilhouette(index, frame: frame, style: style, expand: 0))
-            }
-            context.fill(others, with: .color(.black.opacity(style.crosshairDimOpacity)))
-        }
+        // Expanded a couple of points past the real edges, so the traced line sits just outside
+        // the candle rather than directly on top of it.
+        let expand: CGFloat = 2
+        let geometry = CandleGeometry.compute(index: candleIndex, frame: frame, style: style, pixels: pixels)
+        var shape = Path()
+        shape.addRoundedRect(
+            in: geometry.wick.insetBy(dx: -expand, dy: -expand),
+            cornerSize: CGSize(width: 1.5, height: 1.5)
+        )
+        shape.addRoundedRect(
+            in: geometry.body.insetBy(dx: -expand, dy: -expand),
+            cornerSize: CGSize(width: 3, height: 3)
+        )
 
         // Two stroked passes — a soft, wide, faint one and a tighter, brighter one — rather than
         // one, since a single pass reads as either too weak to notice or too strong to look soft.
@@ -156,48 +161,6 @@ struct CrosshairLayer: View {
         inner.blendMode = .plusLighter
         inner.opacity = 0.5
         inner.stroke(shape, with: .color(glowColor), lineWidth: 1.25)
-    }
-
-    /// The body-and-wick outline of one candle, in plot coordinates — shared by the focused
-    /// candle's glow (which strokes it, expanded slightly past the real edges so the traced line
-    /// sits just outside them) and the dimming fill over every other candle (which fills it
-    /// exactly, `expand: 0`, so the tint never spills past the candle it belongs to).
-    private func candleSilhouette(
-        _ index: Int,
-        frame: ChartFrame,
-        style: CandleChartStyle,
-        expand: CGFloat
-    ) -> Path {
-        let candle = frame.candles[index]
-        let centerX = frame.centerX(ofCandle: index)
-        let bodyWidth = max(2, CGFloat(frame.viewport.spacing) * style.bodyWidthRatio)
-        let highY = frame.y(forPrice: candle.high)
-        let lowY = frame.y(forPrice: candle.low)
-        let openY = frame.y(forPrice: candle.open)
-        let closeY = frame.y(forPrice: candle.close)
-        let bodyTop = min(openY, closeY)
-        let bodyHeight = max(abs(openY - closeY), 2)
-
-        var shape = Path()
-        shape.addRoundedRect(
-            in: CGRect(
-                x: centerX - 1.5 - expand,
-                y: highY - expand,
-                width: 1 + expand * 2,
-                height: max(lowY - highY, 2) + expand * 2
-            ),
-            cornerSize: CGSize(width: 1.5, height: 1.5)
-        )
-        shape.addRoundedRect(
-            in: CGRect(
-                x: centerX - bodyWidth / 2 - expand,
-                y: bodyTop - expand,
-                width: bodyWidth + expand * 2,
-                height: bodyHeight + expand * 2
-            ),
-            cornerSize: CGSize(width: 3, height: 3)
-        )
-        return shape
     }
 }
 #endif

@@ -6,6 +6,18 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Fixed — crosshair dulling moved into the real candle draw call, fixing alignment drift
+
+Follow-up to the previous round's fix (which stopped the crosshair from dimming the whole plot and confined it to candle shapes only): that version drew the dimmed shapes as a *separate* overlay, recomputing each candle's outline independently of `BaseLayerRenderer`'s own pixel-snapped geometry. The two calculations agreed closely but not exactly, and the small, zoom-dependent gap between them was visible as the gray shapes drifting slightly out of alignment with the real candles underneath — worse at some zoom levels than others, and generally reading as a bug rather than an effect.
+
+- **No more second shape.** `CrosshairLayer` no longer builds or fills an "other candles" overlay at all. Dulling now happens inside `BaseLayerRenderer.drawCandles` itself: candles are split into a normal-opacity batch and a reduced-opacity batch based on whether each one is the focused index, using the exact same per-candle rectangles either way. There is only ever one calculation of where a candle's edges are, so there's nothing left that could disagree with it.
+- **New shared geometry helper.** `CandleGeometry.compute(index:frame:style:pixels:)` is the pixel-snapped body/wick rectangle calculation, factored out so both `BaseLayerRenderer` (drawing every candle) and `CrosshairLayer` (tracing the focused candle's glow) derive their rectangles from the same rounded numbers. The glow's outline is built from this too now, instead of its own separate, unsnapped shape — fixing the same class of drift for the glow ring itself, not just the dimming.
+- **`crosshairDimOpacity` re-scoped, not renamed.** It now controls how much a non-focused candle's own fill *opacity* is reduced (blending it toward whatever's behind it), rather than the alpha of a black shape drawn on top of it. Same property, same default (0.35), same 0...1 range — just applied directly to the real draw instead of a stand-in for it.
+
+### Verification
+
+Not yet confirmed on a device. The geometry is now provably identical between the dimmed candles and the normally-drawn ones (same function, same inputs), which removes the specific bug reported, but the *visual* read of "opacity-reduced candle" vs. the earlier "gray tint on top of candle" hasn't been compared side by side on a screen yet — worth a look in both light and dark mode, particularly for hollow up-candles, whose stroke-only outline dims a little differently than a filled body.
+
 ### Fixed — crosshair no longer dims the whole chart, only the other candles
 
 Follow-up to direct device feedback (screenshots in both light and dark mode): hovering the crosshair was darkening the *entire* plot area — grid, background, volume bars, indicator lines, all of it — when only the non-focused candles should recede.

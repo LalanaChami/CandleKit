@@ -36,11 +36,12 @@ public struct CandleChartStyle {
     /// `ChartMetrics.priceAxisOverlap`) — with nothing set there'd be nothing keeping the tick
     /// labels legible against candles moving underneath, so the two always change together.
     public var priceAxisMaterial: Material?
-    /// How much the rest of the chart dims while the crosshair is showing, so the focused candle's
-    /// glow actually draws the eye instead of competing with a full-brightness chart around it.
-    /// `0` disables dimming entirely, keeping only the glow. Applies uniformly across every pane —
-    /// there's no per-pane point highlight to match it against, so dimming a specific indicator
-    /// value along with everything else reads as consistent rather than as a gap in the effect.
+    /// How much duller every candle *other than* the focused one gets while the crosshair is
+    /// showing, so the focused candle's glow actually draws the eye instead of competing with a
+    /// full-brightness chart around it. `0` disables dulling entirely, keeping only the glow.
+    /// Only candles are affected — the reduction lowers each non-focused candle's own fill opacity
+    /// (so it blends toward whatever's behind it) rather than laying a gray overlay across the
+    /// background, grid, volume bars, or indicator lines, none of which dim.
     public var crosshairDimOpacity: Double
 
     public init(
@@ -54,7 +55,7 @@ public struct CandleChartStyle {
         crosshairColor: Color = Color.primary.opacity(0.55),
         indicatorPalette: [Color] = [.orange, .purple, .teal, .pink, .indigo, .brown],
         priceAxisMaterial: Material? = nil,
-        crosshairDimOpacity: Double = 0.35
+        crosshairDimOpacity: Double = 0.28
     ) {
         self.upColor = upColor
         self.downColor = downColor
