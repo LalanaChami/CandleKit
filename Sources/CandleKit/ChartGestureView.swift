@@ -148,6 +148,12 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
         if isDrawingGesture {
             switch recognizer.state {
             case .began:
+                // A trader's finger just started laying down a line — a light tap marks the start
+                // of a placement gesture, the same cue `handleLongPress` gives when the crosshair
+                // engages. Selecting or dragging an existing drawing (no active tool) stays quiet.
+                if drawingController?.activeTool != nil {
+                    impactLight.impactOccurred()
+                }
                 drawingController?.beginPrimaryGesture(at: location)
             case .changed:
                 drawingController?.updatePrimaryGesture(at: location)
@@ -155,7 +161,13 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
                     impactLight.impactOccurred()
                 }
             default:
+                // A medium tap confirms the drawing actually landed — the same begin/commit weight
+                // difference `handleLongPress`/`handleDoubleTap` already use elsewhere in this file.
+                let wasCreating = drawingController?.activeTool != nil
                 drawingController?.endPrimaryGesture(at: location)
+                if wasCreating {
+                    impactMedium.impactOccurred()
+                }
                 isDrawingGesture = false
             }
             return
@@ -191,7 +203,9 @@ final class ChartGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
 
     @objc private func handleSingleTap(_ recognizer: UITapGestureRecognizer) {
         guard recognizer.state == .ended else { return }
-        drawingController?.handleTap(at: recognizer.location(in: recognizer.view))
+        if drawingController?.handleTap(at: recognizer.location(in: recognizer.view)) == true {
+            impactMedium.impactOccurred()
+        }
     }
 
     private func applyTranslation(of recognizer: UIPanGestureRecognizer) {

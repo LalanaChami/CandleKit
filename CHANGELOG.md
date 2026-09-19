@@ -6,6 +6,52 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added — drawing tools trader-UX pass (color, live price/time readout, haptics)
+
+Direct feedback: drawing tools worked, but didn't yet feel like something a trader would reach for —
+no way to tell what price a line sits at, no color choice, and single-anchor tools committed on a
+plain tap with no chance to nudge them into place first. This pass is aimed squarely at that gap.
+
+- **Drag-to-position for single-anchor tools.** `DrawingController.beginPrimaryGesture` no longer
+  requires `anchorCount > 1` to start a live preview — a horizontal line, vertical line, or text
+  note can now be pressed and dragged into place, with the same live preview multi-anchor tools
+  already had, instead of only committing wherever a tap happened to land. A quick, no-drag tap
+  (`handleTap`) still works exactly as before for a fast placement.
+- **Live and permanent price/time axis tags.** Every horizontal line/ray shows its price on the price
+  axis, and every vertical line shows its time on the time axis — both while being dragged into place
+  and once committed — reusing the same `ChartText.drawPriceTag`/`drawTimeTag` primitives the chart's
+  own last-price badge already draws with, so the styling matches. This is the answer to "the user
+  should... know the price in which the horizontal line is drawn."
+- **Live measurement badge for two-anchor tools.** While a trend line, ray, rectangle, or Fibonacci
+  retracement is being dragged, a floating badge near the live anchor shows the signed price delta and
+  percent change from the first anchor, colored green/red by direction — gone once the drawing is
+  committed, so it doesn't clutter the chart permanently.
+- **Per-drawing color.** New `CandlestickChart.defaultDrawingStyle(_:)` modifier sets what a newly
+  created drawing's `style` starts as (color, line width, dash, fill opacity); `Drawing.style` was
+  already per-drawing (not chart-wide), so recoloring an existing drawing — including the selected
+  one — is just mutating `style.color` on the app's own `.drawings(...)` array, the same "app owns the
+  array" pattern already used for deletion. `Color(_ drawingColor: DrawingColor)` is now `public` so an
+  app's own color-swatch UI can render a swatch that matches exactly.
+- **Haptics while drawing.** `ChartGestureCoordinator` now fires a light tap when a drawing gesture
+  begins (an active tool, not a selection drag), a medium tap when it commits, and a medium tap on a
+  successful quick-tap placement — reusing the existing `impactLight`/`impactMedium` generators, no
+  new haptic feedback objects. The existing light tap on a new snap target is unchanged. This directly
+  answers "use haptics when user is drawing the horizontal lines," generalized to every tool rather
+  than special-cased to just one.
+- **Demo app:** `DrawingToolPicker` gained a row of color swatches beneath the tool row. Tapping one
+  sets the color the next drawing will use and, when a drawing is already selected, recolors it
+  immediately — the same tap does the obvious thing in either context.
+
+### Verification
+
+Reviewed carefully by hand; not compiled or run on a device, same caveat as every drawing-tools change
+so far in this project. The parts most worth a real-device pass: whether dragging a single-anchor
+tool actually reads as "drag to position" rather than "the tap moved unexpectedly" (a UX judgment call
+that needs a finger on glass, not just code review); whether the axis tags' positions stay legible
+when multiple horizontal lines sit close together in price (they'll currently stack without avoiding
+each other); and the haptic timing/weight (light-vs-medium, begin-vs-commit) — haptics are notoriously
+hard to judge right from source alone.
+
 ### Added — Tier 2 indicator catalog (roadmap 5.6/5.7)
 
 Twelve new indicators, closing out the Tier 2 catalog the roadmap laid out (Volume Profile

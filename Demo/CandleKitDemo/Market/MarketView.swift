@@ -25,6 +25,10 @@ struct MarketView: View {
     @State private var drawings: [Drawing] = []
     @State private var activeDrawingTool: DrawingTool? = nil
     @State private var selectedDrawingID: UUID? = nil
+    // What color the *next* drawing starts as (`.defaultDrawingStyle(...)`); `DrawingToolPicker`'s
+    // swatch row also uses this to immediately recolor whatever's currently selected, so picking a
+    // color reads the same whether you're about to draw something or already have something picked.
+    @State private var drawingColor: DrawingColor = .default
 
     var body: some View {
         let configuration = FeedConfiguration(source: source, product: product, timeframe: timeframe, attempt: attempt)
@@ -38,7 +42,12 @@ struct MarketView: View {
                 }
                 .pickerStyle(.segmented)
 
-                DrawingToolPicker(activeTool: $activeDrawingTool, drawings: $drawings, selectedDrawingID: $selectedDrawingID)
+                DrawingToolPicker(
+                    activeTool: $activeDrawingTool,
+                    drawings: $drawings,
+                    selectedDrawingID: $selectedDrawingID,
+                    drawingColor: $drawingColor
+                )
 
                 // `feed` streams a new candle (or updates the in-progress one) on every live trade —
                 // often several times a second. Isolated into its own `View` (below) so that reading
@@ -61,7 +70,8 @@ struct MarketView: View {
                     source: $source,
                     drawings: $drawings,
                     activeDrawingTool: $activeDrawingTool,
-                    selectedDrawingID: $selectedDrawingID
+                    selectedDrawingID: $selectedDrawingID,
+                    drawingColor: drawingColor
                 )
                 .frame(maxHeight: .infinity)
 
@@ -134,6 +144,7 @@ private struct MarketChartSection: View {
     @Binding var drawings: [Drawing]
     @Binding var activeDrawingTool: DrawingTool?
     @Binding var selectedDrawingID: UUID?
+    let drawingColor: DrawingColor
 
     var body: some View {
         chart
@@ -176,6 +187,7 @@ private struct MarketChartSection: View {
             .drawings($drawings)
             .drawingTool($activeDrawingTool)
             .selectedDrawing($selectedDrawingID)
+            .defaultDrawingStyle(DrawingStyle(color: drawingColor))
             .onReachOldestCandle { feed.loadOlder() }
             .overlay(alignment: .bottomTrailing) {
                 // Clears the price and time axes.
@@ -199,6 +211,7 @@ private struct DrawingToolPicker: View {
     @Binding var activeTool: DrawingTool?
     @Binding var drawings: [Drawing]
     @Binding var selectedDrawingID: UUID?
+    @Binding var drawingColor: DrawingColor
 
     // Tier 1, in the order the roadmap lists them. The measure tool isn't here — it isn't
     // implemented yet (see the roadmap's 6.3 entry for why it doesn't fit this same model).
@@ -213,32 +226,58 @@ private struct DrawingToolPicker: View {
         (.textNote, "Note"),
     ]
 
+    // A trader's usual palette: bullish green and bearish red for marking support/resistance in the
+    // direction they mean it, plus a neutral blue (the library default), amber for "watch this," and
+    // white/black for a line that has to stay visible on either a light or dark chart background.
+    private static let palette: [DrawingColor] = [
+        DrawingColor(red: 0.2, green: 0.5, blue: 0.95),   // blue (default)
+        DrawingColor(red: 0.16, green: 0.76, blue: 0.44), // bullish green
+        DrawingColor(red: 0.93, green: 0.27, blue: 0.29), // bearish red
+        DrawingColor(red: 0.98, green: 0.65, blue: 0.12), // amber
+        DrawingColor(red: 0.65, green: 0.42, blue: 0.98), // violet
+        DrawingColor(red: 0.95, green: 0.95, blue: 0.95), // near-white
+    ]
+
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                cursorButton
-                ForEach(Self.tools, id: \.tool) { entry in
-                    toolButton(entry.tool, label: entry.label)
-                }
-                if selectedDrawingID != nil {
-                    Divider().frame(height: 20)
-                    Button("Delete", role: .destructive) {
-                        drawings.removeAll { $0.id == selectedDrawingID }
-                        selectedDrawingID = nil
+        VStack(alignment: .leading, spacing: 6) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    cursorButton
+                    ForEach(Self.tools, id: \.tool) { entry in
+                        toolButton(entry.tool, label: entry.label)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-                if !drawings.isEmpty {
-                    Button("Clear all") {
-                        drawings.removeAll()
-                        selectedDrawingID = nil
+                    if selectedDrawingID != nil {
+                        Divider().frame(height: 20)
+                        Button("Delete", role: .destructive) {
+                            drawings.removeAll { $0.id == selectedDrawingID }
+                            selectedDrawingID = nil
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    if !drawings.isEmpty {
+                        Button("Clear all") {
+                            drawings.removeAll()
+                            selectedDrawingID = nil
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
                 }
+                .padding(.horizontal, 2)
             }
-            .padding(.horizontal, 2)
+
+            // Sets the color the *next* drawing starts as; when something is already selected, it
+            // also recolors that drawing immediately, so the same row does the obvious thing whether
+            // you're about to draw or already have something picked — no separate "edit" mode needed.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(Self.palette.indices, id: \.self) { index in
+                        swatchButton(Self.palette[index])
+                    }
+                }
+                .padding(.horizontal, 2)
+            }
         }
     }
 
@@ -258,6 +297,24 @@ private struct DrawingToolPicker: View {
         .buttonStyle(.bordered)
         .controlSize(.small)
         .tint(activeTool == tool ? .accentColor : .secondary)
+    }
+
+    private func swatchButton(_ color: DrawingColor) -> some View {
+        Button {
+            drawingColor = color
+            if let selectedDrawingID, let index = drawings.firstIndex(where: { $0.id == selectedDrawingID }) {
+                drawings[index].style.color = color
+            }
+        } label: {
+            Circle()
+                .fill(Color(color))
+                .frame(width: 22, height: 22)
+                .overlay(
+                    Circle().strokeBorder(.primary, lineWidth: color == drawingColor ? 2 : 0)
+                )
+                .overlay(Circle().stroke(.secondary.opacity(0.3), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
     }
 }
 

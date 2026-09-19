@@ -31,6 +31,8 @@ public struct CandlestickChart: View {
     private var drawingsBinding: Binding<[Drawing]>?
     private var drawingToolBinding: Binding<DrawingTool?>?
     private var selectedDrawingBinding: Binding<UUID?>?
+    /// What a newly created drawing looks like — see `defaultDrawingStyle(_:)`.
+    private var drawingDefaultStyle = DrawingStyle()
     @State private var drawingController = DrawingController()
 
     /// - Parameters:
@@ -62,7 +64,7 @@ public struct CandlestickChart: View {
             tool: drawingToolBinding,
             selection: selectedDrawingBinding,
             frame: { state.currentFrame },
-            defaultStyle: { DrawingStyle() }
+            defaultStyle: { drawingDefaultStyle }
         )
         let drawingsValue = drawingsBinding?.wrappedValue ?? []
 
@@ -423,6 +425,18 @@ extension CandlestickChart {
     public func drawings(_ drawings: Binding<[Drawing]>) -> CandlestickChart {
         var copy = self
         copy.drawingsBinding = drawings
+        return copy
+    }
+
+    /// The color, line width, dash and fill opacity a newly created drawing starts with. Defaults to
+    /// `DrawingStyle()`'s neutral blue. Per-drawing color is the point of `Drawing.style` (design
+    /// note — two trend lines on the same chart can already carry different colors); this only sets
+    /// what the *next* one starts as. To recolor a drawing that already exists — including the
+    /// currently selected one — mutate its `style` directly in your own `.drawings(...)` array, the
+    /// same "app owns the array" pattern `.selectedDrawing(...)` already documents for deletion.
+    public func defaultDrawingStyle(_ style: DrawingStyle) -> CandlestickChart {
+        var copy = self
+        copy.drawingDefaultStyle = style
         return copy
     }
 

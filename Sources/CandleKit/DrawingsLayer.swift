@@ -51,6 +51,24 @@ struct DrawingsLayerRenderer {
         }
         if let previewDrawing {
             draw(previewDrawing, selected: false, in: &plotContext)
+            // A trader watching a price line follow their finger wants to know exactly where it'll
+            // land before letting go, so a two-anchor tool gets a live price/percent delta near the
+            // drag point while it's still in progress. A committed multi-anchor drawing doesn't
+            // repeat this — it would just be permanent clutter on every trend line on the chart.
+            drawMeasurementBadge(for: previewDrawing, in: &plotContext)
+        }
+
+        // Every horizontal/vertical price-or-time line — live preview and already-committed alike —
+        // gets its value tagged on the axis, exactly like the chart's own last-price badge. That's
+        // how every real trading platform marks a drawn level, and it's the whole point of drawing
+        // one: knowing the number, not just seeing the line. Axis rects sit outside `layout.plot`,
+        // so these are drawn against the outer, unclipped context — the same split
+        // `BaseLayerRenderer.drawPhases` uses between its plot content and its own axes.
+        for drawing in drawings where !drawing.isHidden {
+            drawAxisTag(for: drawing, in: &context)
+        }
+        if let previewDrawing {
+            drawAxisTag(for: previewDrawing, in: &context)
         }
     }
 
@@ -116,6 +134,79 @@ struct DrawingsLayerRenderer {
                 context.fill(Path(ellipseIn: handleRect(at: point, radius: 3)), with: .color(.white))
             }
         }
+    }
+
+    /// Tags a horizontal line/ray's price, or a vertical line's time, on the price or time axis —
+    /// the anchor a trader actually cares about, read straight from the model rather than re-derived
+    /// from screen geometry. Anchor 1 is always the fixed point for these kinds (design note §1.2),
+    /// so it's the right one to label even while a second anchor elsewhere is still being dragged.
+    private func drawAxisTag(for drawing: Drawing, in context: inout GraphicsContext) {
+        guard let anchor = drawing.anchors.first,
+              let points = DrawingScreenMapping.screenPoints(for: drawing, in: frame), let point = points.first
+        else { return }
+        let background = Color(drawing.style.color)
+        let foreground = contrastingForeground(for: drawing.style.color)
+        switch drawing.kind {
+        case .horizontalLine, .horizontalRay:
+            ChartText.drawPriceTag(
+                ChartFormat.price(anchor.price, digits: frame.priceFractionDigits),
+                y: point.y,
+                in: frame.layout.priceAxis,
+                background: background,
+                foreground: foreground,
+                context: &context
+            )
+        case .verticalLine:
+            ChartText.drawTimeTag(
+                ChartFormat.detailedTime(anchor.time, interval: frame.interval),
+                x: point.x,
+                in: frame.layout.timeAxis,
+                background: background,
+                foreground: foreground,
+                context: &context
+            )
+        case .trendLine, .ray, .rectangle, .fibonacciRetracement, .textNote:
+            break
+        }
+    }
+
+    /// A floating "how far did this move" readout — signed price delta and percent change — next to
+    /// a two-anchor tool's live second anchor while it's still being dragged. The number a trader
+    /// drawing a trend line or measuring a range actually wants before releasing their finger.
+    private func drawMeasurementBadge(for drawing: Drawing, in context: inout GraphicsContext) {
+        guard drawing.kind.anchorCount == 2, drawing.anchors.count == 2,
+              let points = DrawingScreenMapping.screenPoints(for: drawing, in: frame), points.count == 2
+        else { return }
+        let start = drawing.anchors[0]
+        let end = drawing.anchors[1]
+        let deltaPrice = end.price - start.price
+        let percent = start.price != 0 ? deltaPrice / start.price : 0
+        let digits = frame.priceFractionDigits
+        let text = context.resolve(
+            Text("\(ChartFormat.signedPrice(deltaPrice, digits: digits))  (\(ChartFormat.percent(percent)))")
+                .font(.caption2.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.white)
+        )
+        // Both bounds spelled out as explicit `CGFloat`s — an untyped `240` alongside a bare
+        // `.greatestFiniteMagnitude` left the compiler unable to settle on one floating-point type
+        // for both at once ("ambiguous use of 'greatestFiniteMagnitude'"), unlike `ChartText`'s own
+        // use of the same pattern, where `rect.width` is already typed `CGFloat`.
+        let size = text.measure(in: CGSize(width: CGFloat(240), height: CGFloat.greatestFiniteMagnitude))
+        let horizontalPadding: CGFloat = 6
+        let badgeColor: Color = deltaPrice >= 0 ? .green : .red
+        // Offset up and to the right of the live anchor so the badge doesn't sit under the finger.
+        let origin = CGPoint(x: points[1].x + 10, y: points[1].y - size.height - 16)
+        let rect = CGRect(x: origin.x, y: origin.y, width: size.width + horizontalPadding * 2, height: size.height + 6)
+        context.fill(Path(roundedRect: rect, cornerRadius: 5), with: .color(badgeColor.opacity(0.92)))
+        context.draw(text, at: CGPoint(x: rect.minX + horizontalPadding, y: rect.midY), anchor: .leading)
+    }
+
+    /// Perceptually-cheap luminance check (ITU-R BT.601 weights) to keep an axis tag's text legible
+    /// against whatever color a trader picked for the line — the same problem `LastPriceBadge`
+    /// doesn't have to solve, since its background is always the chart's own fixed up/down palette.
+    private func contrastingForeground(for color: DrawingColor) -> Color {
+        let luminance = 0.299 * color.red + 0.587 * color.green + 0.114 * color.blue
+        return luminance > 0.6 ? .black : .white
     }
 
     // Standard retracement levels — 0 and 1 mark the two anchors themselves, the rest are the

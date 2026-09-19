@@ -393,6 +393,18 @@ every tool afterwards is comparatively mechanical. Get them right once.
       saved drawing), so it needs its own small piece of UI state rather than fitting the
       `DrawingController`/`Drawing` machinery built for the other eight — left for a follow-up rather
       than forced into this pass's shape.
+- [x] **6.3a Trader-UX pass on Tier 1** — direct feedback that the tools worked but didn't yet feel
+      like something a trader would reach for: single-anchor tools (horizontal/vertical line, text
+      note) can now be dragged into position, not just tap-placed; horizontal lines/rays and vertical
+      lines tag their price/time on the axis, live while dragging and permanently once committed; a
+      two-anchor tool's live drag shows a signed price/percent delta badge near the second anchor;
+      `CandlestickChart.defaultDrawingStyle(_:)` sets what a new drawing's color starts as, and an
+      existing drawing (including the selected one) is recolored by mutating its own `style.color`,
+      the same "app owns the array" pattern already used for deletion; `ChartGestureCoordinator` gained
+      light/medium haptics on drawing-gesture begin/commit and successful tap-placement. Not verified
+      on a device — see the CHANGELOG entry for specifics worth a real-device look (axis-tag stacking
+      when lines sit close together in price, haptic weight/timing, and whether drag-to-position for a
+      single-anchor tool actually reads as intended rather than surprising).
 - [ ] **6.4 Tier 2:** parallel channel, ellipse, triangle, Fibonacci extension / fan / time zones,
       Andrews' pitchfork, long and short position tools (entry/target/stop with risk-reward
       readout), arrow, and callout.

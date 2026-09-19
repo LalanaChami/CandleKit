@@ -118,8 +118,14 @@ decided once at gesture-began time, not renegotiated mid-drag:**
   the one that matches "I want to draw five Fibonacci levels," not "I drew one and now I'm back to
   panning by accident." A visible "done drawing" affordance (tapping the tool button again, or a
   dedicated cursor button) returns to `nil`.
-- **A single-anchor tool (horizontal line, vertical line, text note):** no drag at all — one tap
-  places it. Still governed by the same `drawingTool` state, just a shorter gesture.
+- **A single-anchor tool (horizontal line, vertical line, text note):** a plain tap places it
+  immediately, for a fast placement — but a press-and-drag also works, tracking the anchor live
+  (with a price/time axis tag, §7a) and committing on release, the same "line follows your finger
+  until you let go" a trader gets from every other charting app for a horizontal price level. This
+  was revised from the original "no drag at all" plan once it became clear a horizontal line's exact
+  price is usually the thing being fine-tuned, and a blind tap doesn't let you fine-tune it. Both
+  gestures are still governed by the same `drawingTool` state; a tap is simply a drag with zero
+  travel.
 
 This is a **new UIKit recognizer state**, not a rewrite of the existing ones: `ChartGestureCoordinator`
 gains a `drawingController: DrawingController?` (nil when no app binding is attached, so a chart
@@ -222,6 +228,41 @@ under that radius wins and the anchor snaps to it, with a light haptic (reusing 
 `impactLight` generator `ChartGestureCoordinator` already has) on each new snap target. A
 `snappingEnabled: Bool` toggle (default `true`) and the radius are both configuration on
 `DrawingController`, per-chart, not per-drawing.
+
+## 7a. Trader-facing readout, color, and haptics
+
+Added after direct feedback that the mechanics above were right but the tools didn't yet feel like
+something a trader would reach for on a real chart.
+
+- **Price/time on the axis, not just the line.** A horizontal line or ray is meaningless to a trader
+  without its exact price; a vertical line, without its exact time. Both are tagged on the relevant
+  axis — live while the anchor is being dragged into place, and permanently once committed — using
+  the same `ChartText.drawPriceTag`/`drawTimeTag` primitives the chart's own last-price badge already
+  draws with, so the visual language matches rather than introducing a second style of "number in a
+  colored pill." The tag's background is the drawing's own color; its foreground flips between black
+  and white by a cheap luminance check so it stays legible against any color a trader picks.
+- **A live delta while dragging a two-anchor tool.** Sizing a trend line, a rectangle, or a Fibonacci
+  retracement is fundamentally "how far did price move between these two points" — so while the
+  second anchor is being dragged, a small badge near it shows the signed price delta and percent
+  change, colored green for up and red for down. This is deliberately preview-only: a committed
+  drawing doesn't carry a permanent badge, which would be visual noise on every trend line on a busy
+  chart.
+- **Color is per-drawing, not chart-wide**, because `DrawingStyle`/`Drawing.style` already was
+  (§1.1) — this pass just gives an app-level way to *set* it easily.
+  `CandlestickChart.defaultDrawingStyle(_:)` is the one new CandleKit API: it sets what a *newly
+  created* drawing starts as. Recoloring a drawing that already exists — including the one currently
+  selected — needs no further API: it's `drawings[index].style.color = newColor` on the app's own
+  `.drawings(...)` binding, the same "app owns the array" principle §4/§5 already establish for
+  deletion. `Color(_ drawingColor: DrawingColor)` (previously internal, used only by the renderer) is
+  now `public`, so an app's own color-swatch picker can render a swatch that matches the rendered line
+  exactly instead of reimplementing the RGBA conversion.
+- **Haptics mark the gesture, not just the snap.** `ChartGestureCoordinator` already fired a light tap
+  on a new snap target (§7); this adds a light tap when a drawing-creation gesture *begins* (an active
+  tool, not a selection drag) and a medium tap when it *commits* — the same begin/commit weight
+  distinction the crosshair (`handleLongPress`) and double-tap-to-reset (`handleDoubleTap`) already use
+  elsewhere in this file — plus a medium tap on a successful quick-tap placement. This generalizes the
+  specific ask ("haptics when drawing horizontal lines") to every tool, since there's no principled
+  reason a trend line or rectangle should feel different to draw than a horizontal line.
 
 ## 8. What CandleKit renders vs. what the app owns — summary table
 

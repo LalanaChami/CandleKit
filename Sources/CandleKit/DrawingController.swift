@@ -82,9 +82,11 @@ public final class DrawingController {
     private var drawings: [Drawing] { drawingsBinding?.wrappedValue ?? [] }
 
     /// A synthetic, never-persisted `Drawing` built from the anchors placed so far plus the live
-    /// drag point, purely for `DrawingsLayer` to render while a multi-anchor tool is mid-creation.
+    /// drag point, purely for `DrawingsLayer` to render while a tool is mid-creation — including a
+    /// single-anchor tool being dragged into position, where `pendingAnchors` is empty and
+    /// `previewAnchor` alone is the whole drawing.
     var previewDrawing: Drawing? {
-        guard let pendingTool, let previewAnchor, !pendingAnchors.isEmpty else { return nil }
+        guard let pendingTool, let previewAnchor else { return nil }
         return Drawing(kind: pendingTool.kind, anchors: pendingAnchors + [previewAnchor], style: defaultStyleProvider())
     }
 
@@ -102,12 +104,15 @@ public final class DrawingController {
     func beginPrimaryGesture(at point: CGPoint) {
         didSnapLastUpdate = false
         if let tool = activeTool {
-            // Single-anchor tools (horizontal/vertical line, text note) place on a tap, not a drag —
-            // see `handleTap`. A drag while one of them is active still claims the gesture (so it
-            // doesn't fall through to panning), it just has nothing to do with it.
-            guard tool.kind.anchorCount > 1, let anchor = anchor(at: point) else { return }
+            // A trader positioning a horizontal price line, or a vertical time marker, wants to see
+            // it follow their finger before committing to where it lands — the same drag-to-position
+            // every real charting app gives a single-anchor tool, not just a blind tap (`handleTap`
+            // remains for a quick, no-drag tap-to-place). `pendingAnchors` stays empty for these —
+            // `previewAnchor` alone already is the whole drawing — while a multi-anchor tool fixes
+            // its first anchor here and only drags the second.
+            guard let anchor = anchor(at: point) else { return }
             pendingTool = tool
-            pendingAnchors = [anchor]
+            pendingAnchors = tool.kind.anchorCount > 1 ? [anchor] : []
             previewAnchor = anchor
             bump()
             return
@@ -166,15 +171,18 @@ public final class DrawingController {
 
     /// A plain tap, distinct from a drag. Commits a single-anchor tool, or toggles selection in
     /// cursor mode. `ChartGestureCoordinator` reports this from its own tap recognizer — a tap never
-    /// also arrives through the primary-gesture (pan) entry points above.
-    func handleTap(at point: CGPoint) {
+    /// also arrives through the primary-gesture (pan) entry points above. Returns whether a drawing
+    /// was actually placed, so the coordinator knows when a placement haptic is warranted.
+    @discardableResult
+    func handleTap(at point: CGPoint) -> Bool {
         if let tool = activeTool {
-            guard tool.kind.anchorCount == 1, let anchor = anchor(at: point) else { return }
+            guard tool.kind.anchorCount == 1, let anchor = anchor(at: point) else { return false }
             append(Drawing(kind: tool.kind, anchors: [anchor], style: defaultStyleProvider()))
-            return
+            return true
         }
         setSelection(hitTest(point))
         bump()
+        return false
     }
 
     // MARK: Private
