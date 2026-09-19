@@ -6,6 +6,19 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Fixed — crosshair no longer dims the whole chart, only the other candles
+
+Follow-up to direct device feedback (screenshots in both light and dark mode): hovering the crosshair was darkening the *entire* plot area — grid, background, volume bars, indicator lines, all of it — when only the non-focused candles should recede.
+
+- **Full-plot scrim removed.** The previous implementation filled the whole visible plot (every pane) with a blurred black scrim and cut a candle-shaped hole out of it via an even-odd fill. That's what made the whole background go gray instead of just the candles.
+- **Replaced with a per-candle fill.** `CrosshairLayer.drawFocusGlow` now builds one combined path out of every *other* visible candle's own body-and-wick silhouette (`candleSilhouette(_:frame:style:expand:)`, extracted so the focused candle's glow and the dimming fill share identical geometry) and fills just that path with `style.crosshairDimOpacity`-strength black, no blur. Background, grid, axes, volume bars, and indicator lines are untouched — only candle pixels can darken.
+- **Focused candle's glow is unchanged** (stroked outline, additive blend, two passes) — only what happens to the *other* candles changed.
+- **Cost stays bounded to the visible window.** The dimming path is built once per crosshair move from `frame.visible` (already the on-screen candle range), not the full dataset, and filled in a single draw call.
+
+### Verification
+
+Not yet confirmed on a device. The geometry mirrors the existing per-candle body/wick shape used elsewhere (same rounded-rect construction, same `bodyWidthRatio`), so it should align pixel-for-pixel with the real candles underneath it, but that alignment — and whether the flat, unblurred edge reads as intentional rather than jagged at the candle boundary — needs eyes on a real screen in both light and dark mode before calling this settled.
+
 ### Changed — price axis now blends toward the background instead of standing out
 
 Follow-up to the previous round's structural fix (plain `Material`, three-edge feathering) — this one addresses colour and opacity specifically, per feedback that the panel's own tint still read as a distinct box against its surroundings.

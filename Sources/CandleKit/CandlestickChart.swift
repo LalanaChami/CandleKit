@@ -61,14 +61,15 @@ public struct CandlestickChart: View {
                 let metrics = ChartMetrics(
                     priceAxisWidth: priceAxisWidth,
                     timeAxisHeight: timeAxisHeight,
-                    // Only overlap when there's a material to keep the labels legible against
-                    // candles moving underneath — see the doc comment on the property itself.
-                    // 40 of the axis's ~64pt width, not just 28 — the previous value left over a
-                    // third of the axis with no candle content behind it at all (plain background,
-                    // not blurred candles), which is what "there's still background under it" was
-                    // describing. This isn't the whole width because the labels' own reading area,
-                    // nearest the trailing/screen edge, is better served by staying candle-free.
-                    priceAxisOverlap: style.priceAxisMaterial != nil ? 40 : 0
+                    // The requested overlap while browsing history — see `buildFrame`, which forces
+                    // this back to 0 whenever the viewport is showing the latest candle, so "now" is
+                    // never obscured by the axis. Deliberately larger than `priceAxisWidth` itself
+                    // (~64pt at base Dynamic Type size): a smaller value left candles stopping
+                    // partway through the axis while scrolled back, leaving a visible gap of nothing
+                    // between where they ended and the actual screen edge. 70 closes that gap by
+                    // extending candles all the way to (and slightly past, harmlessly clipped by the
+                    // canvas's own bounds) the true edge, for the state where overlap is active at all.
+                    priceAxisOverlap: style.priceAxisMaterial != nil ? 70 : 0
                 )
                 // Covers every pane, so a drag starting on an indicator pane still pans the chart.
                 // Depends only on the size and metrics — never on which indicators are present — so
@@ -318,8 +319,8 @@ private struct PriceAxisGlassPanel: View {
                         Text(frame.priceTickLabels[index])
                             .font(.caption2.monospacedDigit())
                             .foregroundStyle(style.axisLabelColor)
-                            .frame(width: max(0, axis.width - 8), alignment: .leading)
-                            .position(x: axis.minX + max(0, axis.width - 8) / 2 + 6, y: y)
+                            .frame(width: axis.width, alignment: .center)
+                            .position(x: axis.midX, y: y)
                     }
                 }
             }

@@ -418,9 +418,20 @@ public final class CandleChartState {
             guard case let .separate(preferredHeight) = indicator.indicator.pane else { return nil }
             return (indicator.id, CGFloat(preferredHeight))
         }
+        // Force the axis overlap off whenever the viewport is showing the latest candle — "now"
+        // should never be obscured by the axis, on initial load or after scrolling back to it,
+        // even though candles are allowed to slide under the axis while browsing history. Reads
+        // `viewport`/`candles` as they stood at the *start* of this call (before this frame's
+        // update below), which can be one frame stale — imperceptible for a purely cosmetic
+        // decision like this, and far simpler than reordering the whole method around it.
+        var effectiveMetrics = metrics
+        if isFollowingLatest {
+            effectiveMetrics.priceAxisOverlap = 0
+        }
+
         let layout = ChartLayout(
             size: size,
-            metrics: metrics,
+            metrics: effectiveMetrics,
             showsVolume: showsVolume,
             indicatorPaneHeights: paneRequests
         )

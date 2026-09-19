@@ -233,49 +233,50 @@ rewriting each one later or bolting on special cases per indicator. Do 5.1 and 5
         cannot yet move into its own pane; every separate-pane indicator gets its own pane rather
         than being mergeable into a shared one; accessibility does not yet describe pane contents.
         Tracked as 5.11 below.
-- [ ] **5.12 Glass price axis and crosshair spotlight — needs a device look.** Fifth revision, now
-      addressing the axis's colour rather than its shape.
-      - **The panel now blends toward the system background colour** rather than showing
-        `Material`'s own neutral tint outright — `Color(uiColor: .systemBackground)` overlaid at
-        low opacity, which resolves correctly in both light and dark automatically — plus an
-        overall opacity reduction for more translucency than any single `Material` level offers on
-        its own. Directly from feedback that the axis's colour was standing out against its
-        surroundings rather than blending in.
-      - Feather fractions widened slightly (leading 15%→20%, top/bottom 8%→12% each) for a smoother
-        dissolve.
-      - `glassEffect` remains reverted (see the previous entry); still a plain `Material`-based
-        panel, not real Liquid Glass.
-      - The crosshair glow is stroked, not filled (see the entry above this one for why).
-      - **On iOS 26+, the price axis uses the real `glassEffect()` API** (genuine Liquid Glass —
-        specular highlights, not just blur), clipped to a shape rounded only on the leading edge
-        (the one edge that's an actual boundary; the others are flush with the screen/pane edges).
-        iOS 17–25 falls back to the same edge-rounded shape filled with the chosen `Material`, plus
-        a faint edge highlight for definition.
-      - **The crosshair now dims the rest of the chart** (`CandleChartStyle.crosshairDimOpacity`,
-        default `0.35`, `0` disables it) while glowing the focused candle, so the highlight actually
-        draws the eye. The dim's "hole" reuses the glow's own shape and blur radius, so the two
-        read as one effect rather than mismatched rings.
+- [ ] **5.12 Glass price axis and crosshair spotlight — needs a device look.** Eighth revision,
+      resolving the tension between two real requirements: candles should slide under the axis
+      while browsing history (the original request), but the *latest* candle should never be
+      obscured by it, on initial load or after returning to "now."
+      - **`ChartMetrics.priceAxisOverlap` is `70`** (deliberately larger than `priceAxisWidth`
+        itself, ~64pt at base Dynamic Type size, so candles reach the true screen edge with no dead
+        zone) **whenever the viewport is not showing the latest candle, and forced to `0` whenever
+        it is.** The decision is made inside `CandleChartState.buildFrame`, using the existing
+        `isFollowingLatest` check, not in `CandlestickChart.body` — that outer scope deliberately
+        doesn't re-run per frame (a load-bearing performance choice from an earlier pass) and can't
+        react to the viewport correctly; `buildFrame` already does, every frame.
+      - This automatically covers "initial load": the very first viewport a chart shows *is* the
+        latest one by construction, so `isFollowingLatest` is already true before any gesture has
+        happened.
+      - Uses state as it stood at the start of the current `buildFrame` call, which can be one frame
+        stale relative to updates applied later in the same call — reasoned to be imperceptible for
+        a purely cosmetic decision, not verified on a device.
+      - The panel is a plain `Material` fill (not `glassEffect` — tried and reverted after real
+        device screenshots showed visible artefacts on this tall, edge-spanning shape; true Liquid
+        Glass is future work, but needs a way to iterate against a device, not another guess).
+      - Blended toward `Color(uiColor: .systemBackground)` at low opacity plus an overall `0.7`
+        opacity reduction, feathered on three edges (leading 20%, top/bottom 12% each), price tick
+        labels horizontally centered.
+      - The crosshair dims the rest of the chart (`CandleChartStyle.crosshairDimOpacity`, default
+        `0.35`, `0` disables it) while glowing the focused candle — stroked, not filled, so the
+        candle's own detail stays visible.
+      - Two abandoned variants along the way: an always-on overlap that put real candles under the
+        axis at rest (the specific bug this revision fixes), and an experimental scroll-triggered
+        fade tied to `isScrolling` rather than to viewport position — the wrong condition, since
+        "actively touching the screen" and "not looking at the latest candle" aren't the same thing.
 
-      Both remain pure rendering/style changes with no effect on data, gestures, or layout math
-      beyond the axis's own bounds. Before relying on it:
-      - Confirm the axis now actually reads as part of the background rather than a distinct box —
-        this round's specific target, and the thing to check first.
-      - Confirm the extra translucency (0.7 overall opacity on top of the background blend) hasn't
-        made the panel so faint it no longer helps tick-label legibility, which was the entire
-        reason a backing existed in the first place — this is the one place "more translucent" and
-        "still functions as a legibility backdrop" are in real tension, and it's not obvious in
-        advance which value wins that trade-off.
-      - Confirm the dim-with-a-hole reads as a spotlight and not as a distracting hard edge, and
-        that indicator panes dimming without their own point-highlight doesn't look like a bug
-        (it's deliberate — see the doc comment on `crosshairDimOpacity` — but "deliberate" and
-        "looks right" aren't the same thing until someone's seen it).
-      - Both effects use `GraphicsContext.Filter.blur(radius:)` only, deliberately avoiding
-        `.shadow(...)`'s multi-parameter signature, which hasn't been confirmed. If `.blur` itself
-        turns out wrong, the fallback is a solid, unblurred additive outline and a hard-edged dim
-        cutout — less soft, but avoids gambling on unconfirmed Canvas filter APIs.
-      - Confirm the new stroke-based glow is actually visible at typical zoom levels — a candle
-        only a few points wide leaves little room for a stroked outline before it starts looking
-        like a slightly thicker candle rather than a distinct glow.
+      Before relying on it:
+      - Confirm the latest candle is genuinely never under the axis, at rest, on load, and right
+        after tapping any "jump to latest" control — the specific case this revision targets.
+      - Confirm the transition between the two overlap states (scrolling away from / back to latest)
+        doesn't read as a visible jump — it's untested, and unlike the earlier disregarded
+        experiment, this version has no fade to hide behind if it does.
+      - Confirm centered labels clear the axis's edges at large Dynamic Type sizes.
+      - Confirm the panel reads as blended-in rather than standing out, and `0.7` opacity still
+        leaves labels legible against busy candle colors.
+      - Confirm the stroke-based glow is visible at typical zoom levels, and the dim-with-a-hole
+        reads as a spotlight rather than a hard edge.
+      - Both the glow and the dim use `GraphicsContext.Filter.blur(radius:)` only, deliberately
+        avoiding `.shadow(...)`'s unconfirmed multi-parameter signature.
 - [ ] **5.11 Pane interaction and accessibility.** Drag the divider to resize a pane, collapse and
       expand, move volume into its own pane, merge two indicators into one pane, and extend VoiceOver
       so each pane's values are readable at the crosshair rather than only the price.
