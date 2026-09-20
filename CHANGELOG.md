@@ -6,6 +6,162 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added — drawing tools trader-UX pass (color, live price/time readout, haptics)
+
+Direct feedback: drawing tools worked, but didn't yet feel like something a trader would reach for —
+no way to tell what price a line sits at, no color choice, and single-anchor tools committed on a
+plain tap with no chance to nudge them into place first. This pass is aimed squarely at that gap.
+
+- **Drag-to-position for single-anchor tools.** `DrawingController.beginPrimaryGesture` no longer
+  requires `anchorCount > 1` to start a live preview — a horizontal line, vertical line, or text
+  note can now be pressed and dragged into place, with the same live preview multi-anchor tools
+  already had, instead of only committing wherever a tap happened to land. A quick, no-drag tap
+  (`handleTap`) still works exactly as before for a fast placement.
+- **Live and permanent price/time axis tags.** Every horizontal line/ray shows its price on the price
+  axis, and every vertical line shows its time on the time axis — both while being dragged into place
+  and once committed — reusing the same `ChartText.drawPriceTag`/`drawTimeTag` primitives the chart's
+  own last-price badge already draws with, so the styling matches. This is the answer to "the user
+  should... know the price in which the horizontal line is drawn."
+- **Live measurement badge for two-anchor tools.** While a trend line, ray, rectangle, or Fibonacci
+  retracement is being dragged, a floating badge near the live anchor shows the signed price delta and
+  percent change from the first anchor, colored green/red by direction — gone once the drawing is
+  committed, so it doesn't clutter the chart permanently.
+- **Per-drawing color.** New `CandlestickChart.defaultDrawingStyle(_:)` modifier sets what a newly
+  created drawing's `style` starts as (color, line width, dash, fill opacity); `Drawing.style` was
+  already per-drawing (not chart-wide), so recoloring an existing drawing — including the selected
+  one — is just mutating `style.color` on the app's own `.drawings(...)` array, the same "app owns the
+  array" pattern already used for deletion. `Color(_ drawingColor: DrawingColor)` is now `public` so an
+  app's own color-swatch UI can render a swatch that matches exactly.
+- **Haptics while drawing.** `ChartGestureCoordinator` now fires a light tap when a drawing gesture
+  begins (an active tool, not a selection drag), a medium tap when it commits, and a medium tap on a
+  successful quick-tap placement — reusing the existing `impactLight`/`impactMedium` generators, no
+  new haptic feedback objects. The existing light tap on a new snap target is unchanged. This directly
+  answers "use haptics when user is drawing the horizontal lines," generalized to every tool rather
+  than special-cased to just one.
+- **Demo app:** `DrawingToolPicker` gained a row of color swatches beneath the tool row. Tapping one
+  sets the color the next drawing will use and, when a drawing is already selected, recolors it
+  immediately — the same tap does the obvious thing in either context.
+
+### Verification
+
+Reviewed carefully by hand; not compiled or run on a device, same caveat as every drawing-tools change
+so far in this project. The parts most worth a real-device pass: whether dragging a single-anchor
+tool actually reads as "drag to position" rather than "the tap moved unexpectedly" (a UX judgment call
+that needs a finger on glass, not just code review); whether the axis tags' positions stay legible
+when multiple horizontal lines sit close together in price (they'll currently stack without avoiding
+each other); and the haptic timing/weight (light-vs-medium, begin-vs-commit) — haptics are notoriously
+hard to judge right from source alone.
+
+### Added — Tier 2 indicator catalog (roadmap 5.6/5.7)
+
+Twelve new indicators, closing out the Tier 2 catalog the roadmap laid out (Volume Profile
+deliberately excluded — see below):
+
+- **Trend overlays:** Donchian Channels, Keltner Channels, SuperTrend, Parabolic SAR, Ichimoku
+  Cloud, Pivot Points (classic/Fibonacci/Camarilla).
+- **Oscillators:** ADX/DMI, Commodity Channel Index, Money Flow Index, Williams %R, Rate of
+  Change/Momentum (one indicator, a mode switch), Chaikin Money Flow.
+- All twelve are `Indicator` conformances over new `IndicatorMath` functions
+  (`IndicatorMathTier2.swift`), each documenting its convention the same way Tier 1 does. Reach them
+  through `IndicatorCatalog.full` (standard + Tier 2) or the new `ChartIndicator` factories
+  (`.donchianChannels()`, `.superTrend()`, `.adx()`, etc.).
+- **The renderer's fill drawing gained real crossover-coloring support** (`IndicatorFill.colorFollowsCrossover`
+  existed in the model since 5.1 but was never actually implemented — `BaseLayerRenderer.drawFills`
+  always used one fixed color). Ichimoku's cloud needs this to flip between bullish and bearish
+  tinting as Span A crosses Span B, so this pass implements it: a fill run splits wherever the two
+  plots' raw values cross, each side colored independently. Every other fill (Bollinger, Donchian,
+  Keltner) is unaffected — they don't set `colorFollowsCrossover`, so they take the same single-color
+  path as before.
+- **Known gap, documented rather than silently accepted:** Ichimoku's Senkou spans don't yet project
+  past the most recent candle into blank future space, the way a real Ichimoku cloud does — the
+  per-candle array model has no representation for a position beyond the data. Extending a pane past
+  the last candle is a renderer-level change; tracked as roadmap follow-up.
+- **Volume Profile deliberately not implemented.** As the roadmap already flagged, it's a horizontal
+  histogram binned by price rather than a per-candle series, and doesn't fit `IndicatorResult`
+  without a new output case — that's its own design task, not something to force into this pass.
+- Cross-checked against an independently written Python reference implementation of each formula
+  (`Tier2IndicatorMathTests.swift`), same policy and same caveat as Tier 1: internally consistent and
+  formula-accurate, not yet validated against a live TradingView chart or another authoritative
+  source (roadmap 5.9, now explicitly covering Tier 2 too).
+
+### Added — drawing tools: design note, Core model, renderer, gestures (roadmap 6.1–6.3)
+
+- **`docs/design/drawing-tools.md`** — the design note the roadmap calls for before any drawing-tool
+  code: the app-owned `Codable` model anchored to `(Date, price)`, the `.drawings()`/`.drawingTool()`
+  API shape, how a drawing tool's drag coexists with the chart's existing pan/pinch/long-press
+  (a mode switch on the same `ChartGestureCoordinator`, not simultaneous gesture recognition), hit
+  testing tolerances, z-order/lock/visibility, `UndoManager`-based undo, and a VoiceOver plan.
+- **Core model** (`Sources/CandleKitCore/Drawings/`): `Drawing`, `DrawingAnchor`, `DrawingKind`,
+  `DrawingTool`, `DrawingStyle`, `DrawingColor` (all `Codable`, no UI-framework dependency, same as
+  the indicator model), plus `DrawingGeometry` — anchor↔position mapping against the chart's
+  index-based viewport (exact match, interpolation, edge extrapolation) *and its inverse*
+  (position↔anchor, for turning a live touch back into a `(Date, price)`), and
+  distance-to-segment/infinite-line/ray/rectangle-edge for hit testing. All unit-tested on Linux,
+  including a round-trip test (`time(forPosition:)` → `position(for:)` → back) cross-checked against
+  an independent Python reference.
+- **Renderer, controller, and gesture integration land on top of that model in this same pass:**
+  - `DrawingsLayer`/`DrawingsLayerRenderer` — draws every visible drawing, the tool-in-progress
+    preview, and the selected drawing's anchor handles.
+  - `DrawingScreenMapping` — the one place anchors convert to and from screen pixels, shared by the
+    renderer and hit testing so they can't independently disagree about where a drawing sits (the
+    same role `CandleGeometry` plays for candle bodies, and for the same reason: that exact class of
+    drift was a real, user-reported bug for the crosshair before `CandleGeometry` existed).
+  - `DrawingController` — active-tool creation state, selection, whole-drawing move, and snapping to
+    the nearest visible candle's OHLC within a configurable radius (roadmap 6.2), reusing the
+    existing `impactLight` haptic on each new snap.
+  - `ChartGestureCoordinator` gains a `drawingController` property and a guarded branch in its pan
+    handler (claimed once, at gesture-began time, never renegotiated mid-drag), pinch and long-press
+    now refuse to begin while a tool is active, and a new single-tap recognizer (required to fail
+    against the existing double-tap) handles single-anchor placement and cursor-mode selection.
+    Every one of these is a no-op path when no `.drawings(...)` is attached, so an ordinary chart's
+    gesture behavior is provably unchanged.
+  - New public API: `CandlestickChart.drawings(_:)` / `.drawingTool(_:)` / `.selectedDrawing(_:)`
+    (the last one-way, chart → app, so an app can show its own inspector or delete button — deletion
+    itself stays a plain `drawings.removeAll { ... }` on the app's own binding, per the note's §4/§5).
+- **Eight of Tier 1's nine tools (6.3)** are implemented this way: horizontal line, horizontal ray,
+  vertical line, trend line, ray, rectangle, Fibonacci retracement, text note. **The measure tool is
+  not** — it's transient and non-persisted like the crosshair, not modeled in `DrawingKind`, and
+  needs its own small piece of state rather than fitting this pass's `Drawing`-shaped machinery.
+- **Known gaps, called out rather than left implicit** (see the roadmap's 6.1 entry for the full
+  list): per-anchor resize (moving a selection today translates the whole drawing, not one endpoint);
+  no in-chart text entry for `.textNote` yet (a tap places one with placeholder text); VoiceOver for
+  drawings — both inspecting an existing one and constructing one — is still only the plan in the
+  design note's §6, not code.
+
+### Verification
+
+None of the above has been run in an iOS build or on a device — same caveat as every other change in
+this project made without a Swift toolchain available to compile or execute it. Reviewed carefully
+by hand and cross-checked with independent reference logic wherever the math allowed it (the
+position↔anchor round-trip in particular), but not compiled, not run, and the gesture-mode switching
+in `ChartGestureCoordinator` especially deserves a real device pass before shipping — it's the part
+of this codebase with the most previously hard-won, easy-to-regress correctness.
+
+### Fixed — the toolbar's "Chart options" menu re-rendering on every live trade
+
+Reported directly: the Demo app's menu "always gets refreshed." Root cause was `MarketView.body`
+itself, not the menu: `feed.candles` (from `MarketFeed`, an `@Observable` that mutates on every
+incoming trade — often several times a second for the simulated/live feed) was read directly inside
+`MarketView.body`, both via a `.animation(value: feed.candles.isEmpty)` modifier and the `chart`
+computed property. Since `optionsMenu` was *also* a plain computed property evaluated inside that
+same `body`, every trade tick re-evaluated the whole body — including rebuilding the `Menu`'s entire
+content from scratch, even though nothing in the menu itself ever reads `feed`.
+
+- **Split `MarketView.body` into dedicated `View` types** along the same fault line the file's own
+  `JumpToLatestButton` already establishes ("lives in its own view so that only this button, not the
+  whole screen, re-renders"): a new `MarketChartSection` owns everything that reads `feed.candles`,
+  and a new `ChartOptionsMenu` owns the toolbar menu, taking only `Binding`s and a plain
+  `CandleChartState` reference — no `feed` dependency at all.
+- With that split, a live trade re-renders only `MarketChartSection` (which is supposed to update
+  live); `MarketView.body` and the toolbar's `Menu` are no longer touched by it.
+
+### Verification
+
+Not yet confirmed on a device — the fix follows an established, already-proven pattern in this same
+file (`JumpToLatestButton`), and the reasoning (an `@Observable` property read inside a shared `body`
+taints that whole body's Observation scope) is a well-documented SwiftUI behavior, not a guess, but
+whether the menu now visibly stays put while trades stream in hasn't been eyeballed on a real device.
+
 ### Fixed — crosshair dulling moved into the real candle draw call, fixing alignment drift
 
 Follow-up to the previous round's fix (which stopped the crosshair from dimming the whole plot and confined it to candle shapes only): that version drew the dimmed shapes as a *separate* overlay, recomputing each candle's outline independently of `BaseLayerRenderer`'s own pixel-snapped geometry. The two calculations agreed closely but not exactly, and the small, zoom-dependent gap between them was visible as the gray shapes drifting slightly out of alignment with the real candles underneath — worse at some zoom levels than others, and generally reading as a bug rather than an effect.

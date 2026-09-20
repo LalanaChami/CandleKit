@@ -295,12 +295,21 @@ and most of it is good "good first issue" community-contribution material once 5
       conformances over `IndicatorMath`. **Caveat:** see the note in `IndicatorMathTests.swift` —
       the expectations are cross-checks against an independent implementation, *not* transcriptions
       from a published table. Validating against an authoritative source is 5.9 below.
-- [ ] **5.6 Tier 2 — overlays:** Ichimoku Cloud, SuperTrend, Parabolic SAR, Keltner Channels,
-      Donchian Channels, Pivot Points (classic/Fibonacci/Camarilla).
-- [ ] **5.7 Tier 2 — oscillators:** ADX/DMI, CCI, MFI, Williams %R, ROC/Momentum, Chaikin Money
-      Flow, Volume Profile (this last one is substantially harder than the rest — it's a horizontal
-      histogram binned by price, not a per-candle series, and may not fit the 5.1 output model
-      without an extra case; decide during 5.1 whether to accommodate it or defer it).
+- [x] **5.6 Tier 2 — overlays.** *(landed — needs an iOS build and a device check.)* Ichimoku Cloud,
+      SuperTrend, Parabolic SAR, Keltner Channels, Donchian Channels, and Pivot Points
+      (classic/Fibonacci/Camarilla) — `Sources/CandleKitCore/Indicators/Tier2Indicators.swift` and
+      `IndicatorMathTier2.swift`. Reachable via `IndicatorCatalog.full` (standard + Tier 2) or
+      individually through the new `ChartIndicator` factories.
+      **Known gap:** Ichimoku's cloud is computed correctly but doesn't yet project past the most
+      recent candle into blank future space — the per-candle array model has no representation for
+      a position beyond the data. Extending a pane past the last candle is a renderer-level change;
+      tracked as follow-up, not done as part of this pass.
+- [x] **5.7 Tier 2 — oscillators.** *(landed — needs an iOS build and a device check.)* ADX/DMI,
+      CCI, MFI, Williams %R, ROC/Momentum (one indicator, a mode switch), and Chaikin Money Flow.
+      **Volume Profile deferred, not landed** — per this item's own note, it's a horizontal
+      histogram binned by price rather than a per-candle series, and doesn't fit the existing
+      `IndicatorResult` output model without a new case. Revisit as its own design task rather than
+      forcing it into this pass.
 
 **Every indicator in both tiers must document which convention it implements, and test against
 published reference values with the source cited in a comment.** This matters more than it sounds:
@@ -317,11 +326,14 @@ where a second convention is common, expose it as a parameter.
 - [ ] **5.9 Validate indicator values against an authoritative source.** Every Tier 1 indicator's
       numbers checked against a primary reference — Wilder's *New Concepts in Technical Trading
       Systems* for RSI/ATR, or a live TradingView chart on the same data — and the convention
-      confirmed in each doc comment. **This is not optional polish.** An attempt to validate RSI
-      against a widely reproduced worked example during 5.5 came out consistently ~0.07 off, and no
-      seeding or rounding variant explained the gap; the recalled table was most likely wrong, but
-      that couldn't be established without the primary source. Until this task is done, CandleKit's
-      indicator values are internally consistent and match the documented formulas, but are *not*
+      confirmed in each doc comment. Now applies to Tier 2 as well (5.6/5.7): those are cross-checked
+      against an independently written reference implementation, same as Tier 1, and share the same
+      open status here — internally consistent, not yet confirmed against a live platform. **This is
+      not optional polish.** An attempt to validate RSI against a widely reproduced worked example
+      during 5.5 came out consistently ~0.07 off, and no seeding or rounding variant explained the
+      gap; the recalled table was most likely wrong, but that couldn't be established without the
+      primary source. Until this task is done, CandleKit's indicator values are internally
+      consistent and match the documented formulas, but are *not*
       confirmed to match what a user sees on another platform.
 - [x] **5.10 Migrate the rendering layer onto the new model.** *(landed — needs an iOS build and a
       device check.)* `ChartIndicator` now wraps any `Indicator`; `IndicatorCache` is keyed by
@@ -343,31 +355,64 @@ every tool afterwards is comparatively mechanical. Get them right once.
 
 ### Architecture
 
-- [ ] **6.1 Design note** in `docs/design/drawing-tools.md`, agreed before any code:
-      - A model owned by the app: `Codable`, anchored to `(Date, price)` pairs — never indices,
-        which shift when history is prepended.
-      - API shape, for example `.drawings($drawings)` plus a current-tool binding.
-      - How drawing gestures coexist with pan, pinch and long-press. This is the crux: entering a
-        drawing mode has to change what a drag means without making the chart feel modal or trapped.
-      - Hit testing with a touch-sized tolerance, selection, and drag handles per anchor.
-      - Z-order, duplicate, lock, and per-drawing visibility.
-      - Deletion, and undo/redo (probably `UndoManager`).
-      - VoiceOver: drawings must be reachable, described, and adjustable, not just visual.
-- [ ] **6.2 Magnet / snapping.** Snap anchors to nearby open/high/low/close values, with a
-      configurable strength and an off switch. Cheap to add during 6.1's interaction work, very
-      annoying to retrofit afterwards.
+- [x] **6.1 Design note** — landed at `docs/design/drawing-tools.md`. Resolves every question this
+      item lists: the app-owned, `Codable`, `(Date, price)`-anchored model; the `.drawings($drawings)`
+      + `.drawingTool($activeTool)` API shape; gesture coexistence via a mode switch on
+      `ChartGestureCoordinator` (not simultaneous recognition); 22pt/16pt touch-tolerance hit
+      testing; z-order as array order, duplicate/lock/visibility; `UndoManager`-based undo/redo
+      registered by the app; and a VoiceOver plan that explicitly separates "inspect and adjust an
+      existing drawing" (day one) from "construct one without sight" (flagged as its own follow-up,
+      not silently dropped).
+      **Landed beyond the pure Core model:** the renderer (`DrawingsLayer`/`DrawingsLayerRenderer`),
+      `DrawingController` (creation-in-progress state, selection, hit testing, snapping), the
+      `ChartGestureCoordinator` mode-switch integration itself, and the public
+      `.drawings($drawings)` / `.drawingTool($activeTool)` API on `CandlestickChart`. **Known gaps in
+      this first pass, called out explicitly rather than silently dropped:**
+      - Moving a selected drawing translates the whole shape by the drag delta; per-anchor resize
+        handles (dragging just one endpoint) are a fast follow.
+      - `.textNote` has no in-chart text-entry UI yet — a tap places one with a placeholder ("Note"),
+        and an app is expected to offer its own way to edit `Drawing.text` for now (a sheet, an
+        inspector) until CandleKit grows one.
+      - The VoiceOver *construction* flow the note's §6 flags as a follow-up is still just that — a
+        follow-up. Inspecting and adjusting an existing drawing via VoiceOver is not yet built either;
+        only the plan for it exists.
+      - Not verified in an iOS build or on a device — same caveat as everything else added this way
+        in this codebase without a Swift toolchain available to compile or run it.
+- [x] **6.2 Magnet / snapping** — implemented per the note's §7: `DrawingController.snappingEnabled`
+      (default `true`) and `snapRadius` (default 14pt), snapping a placed or dragged anchor to the
+      nearest visible candle's open/high/low/close within that radius, with the existing `impactLight`
+      haptic firing on each new snap target. Not yet verified on a device.
 
 ### Catalog
 
-- [ ] **6.3 Tier 1:** horizontal line, horizontal ray, vertical line, trend line, ray, rectangle,
-      Fibonacci retracement, text note, and a measure tool (drag to read price Δ, % Δ, bar count and
-      elapsed time). These cover the overwhelming majority of real chart annotation.
+- [x] **6.3 Tier 1 (mostly):** horizontal line, horizontal ray, vertical line, trend line, ray,
+      rectangle, Fibonacci retracement, and text note are implemented — rendering, hit testing, and
+      creation via the gesture integration above. **The measure tool is not implemented.** It's
+      transient and non-persisted, unlike every other Tier 1 tool (it was never modeled in
+      `DrawingKind`, per the design note's own framing of it as closer to the crosshair than to a
+      saved drawing), so it needs its own small piece of UI state rather than fitting the
+      `DrawingController`/`Drawing` machinery built for the other eight — left for a follow-up rather
+      than forced into this pass's shape.
+- [x] **6.3a Trader-UX pass on Tier 1** — direct feedback that the tools worked but didn't yet feel
+      like something a trader would reach for: single-anchor tools (horizontal/vertical line, text
+      note) can now be dragged into position, not just tap-placed; horizontal lines/rays and vertical
+      lines tag their price/time on the axis, live while dragging and permanently once committed; a
+      two-anchor tool's live drag shows a signed price/percent delta badge near the second anchor;
+      `CandlestickChart.defaultDrawingStyle(_:)` sets what a new drawing's color starts as, and an
+      existing drawing (including the selected one) is recolored by mutating its own `style.color`,
+      the same "app owns the array" pattern already used for deletion; `ChartGestureCoordinator` gained
+      light/medium haptics on drawing-gesture begin/commit and successful tap-placement. Not verified
+      on a device — see the CHANGELOG entry for specifics worth a real-device look (axis-tag stacking
+      when lines sit close together in price, haptic weight/timing, and whether drag-to-position for a
+      single-anchor tool actually reads as intended rather than surprising).
 - [ ] **6.4 Tier 2:** parallel channel, ellipse, triangle, Fibonacci extension / fan / time zones,
       Andrews' pitchfork, long and short position tools (entry/target/stop with risk-reward
       readout), arrow, and callout.
 
-**Exit criteria:** drawings survive history prepends and timeframe switches, round-trip through
-`Codable` without loss, and are fully operable under VoiceOver.
+**Exit criteria:** drawings survive history prepends and timeframe switches (done — anchors are
+`(Date, price)`, looked up against the current candle array on every render), round-trip through
+`Codable` without loss (done, unit-tested), and are fully operable under VoiceOver (not done — see
+6.1's gaps above).
 
 ---
 
