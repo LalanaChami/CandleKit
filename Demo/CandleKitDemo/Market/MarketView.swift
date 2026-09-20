@@ -30,6 +30,17 @@ struct MarketView: View {
     // color reads the same whether you're about to draw something or already have something picked.
     @State private var drawingColor: DrawingColor = .default
 
+    // Style is app-owned state, not a constant, so Save/Load Layout (roadmap 7.3) has something to
+    // capture and restore — see `ChartLayout.StyleSnapshot`.
+    @State private var style = CandleChartStyle(priceAxisMaterial: .ultraThinMaterial)
+    @State private var layoutAlert: LayoutAlert?
+
+    // Price alert row (roadmap 9.3's `priceCrossings(in:levels:)`) — a demonstration of the
+    // primitive, not a real alerting system: no persistence, no notification, just a banner. See
+    // `MarketChartSection.checkPriceAlert`.
+    @State private var alertLevelText = ""
+    @State private var activeAlertLevel: Double?
+
     var body: some View {
         let configuration = FeedConfiguration(source: source, product: product, timeframe: timeframe, attempt: attempt)
 
@@ -49,6 +60,8 @@ struct MarketView: View {
                     drawingColor: $drawingColor
                 )
 
+                PriceAlertRow(levelText: $alertLevelText, activeLevel: $activeAlertLevel)
+
                 // `feed` streams a new candle (or updates the in-progress one) on every live trade —
                 // often several times a second. Isolated into its own `View` (below) so that reading
                 // `feed.candles` doesn't taint *this* body's own Observation scope: before this was
@@ -66,6 +79,8 @@ struct MarketView: View {
                     product: product,
                     indicators: indicators,
                     showsVolume: showsVolume,
+                    style: style,
+                    alertLevel: activeAlertLevel,
                     attempt: $attempt,
                     source: $source,
                     drawings: $drawings,
@@ -95,7 +110,9 @@ struct MarketView: View {
                         showsVolume: $showsVolume,
                         showsRSI: $showsRSI,
                         showsMACD: $showsMACD,
-                        chartState: chartState
+                        chartState: chartState,
+                        onSaveLayout: saveLayout,
+                        onLoadLayout: loadLayout
                     )
                 }
             }
@@ -103,6 +120,65 @@ struct MarketView: View {
         .task(id: configuration) {
             await feed.run(configuration)
         }
+        .alert(item: $layoutAlert) { alert in
+            Alert(title: Text(alert.title), message: Text(alert.message), dismissButton: .default(Text("OK")))
+        }
+    }
+
+    // MARK: Save/Load layout (roadmap 7.3)
+
+    /// Captures everything `ChartLayout` knows how to capture — style, the indicators currently
+    /// toggled on, drawings, and scroll/zoom position — to the demo's one saved-layout slot.
+    private func saveLayout() {
+        let layout = ChartLayout(
+            style: style.snapshot,
+            indicators: indicators.map(\.persisted),
+            drawings: drawings,
+            viewport: chartState.currentViewport,
+            timeframeIdentifier: String(timeframe.rawValue)
+        )
+        do {
+            try DemoLayoutStorage.save(layout)
+            layoutAlert = LayoutAlert(title: "Layout Saved", message: "Style, indicators, drawings and scroll position were saved.")
+        } catch {
+            layoutAlert = LayoutAlert(title: "Couldn't Save Layout", message: error.localizedDescription)
+        }
+    }
+
+    /// Restores everything `saveLayout()` captured. Indicators are rebuilt as toggles rather than a
+    /// freeform list — this demo's indicator picker is a fixed set of on/off switches, not an
+    /// arbitrary catalog — by checking which of those six identifiers the saved layout contains; an
+    /// app with a real indicator picker would instead rebuild each entry with
+    /// `ChartIndicator.init?(_:catalog:)`, exactly as `ChartLayout+CandleKit.swift` documents.
+    private func loadLayout() {
+        do {
+            let layout = try DemoLayoutStorage.load()
+            chartState.restoreViewport(layout.viewport)
+            style = CandleChartStyle(layout.style)
+            drawings = layout.drawings
+            applyIndicatorToggles(from: layout.indicators)
+            if let identifier = layout.timeframeIdentifier,
+               let rawValue = Int(identifier),
+               let restored = Timeframe(rawValue: rawValue) {
+                timeframe = restored
+            }
+            layoutAlert = LayoutAlert(title: "Layout Loaded", message: "Restored your saved style, indicators, drawings and scroll position.")
+        } catch {
+            layoutAlert = LayoutAlert(title: "Couldn't Load Layout", message: error.localizedDescription)
+        }
+    }
+
+    private func applyIndicatorToggles(from persisted: [PersistedIndicator]) {
+        showsSMA = persisted.contains {
+            $0.descriptor.identifier == "ma" && $0.descriptor.parameters["method"]?.stringValue == "SMA"
+        }
+        showsEMA = persisted.contains {
+            $0.descriptor.identifier == "ma" && $0.descriptor.parameters["method"]?.stringValue == "EMA"
+        }
+        showsBollinger = persisted.contains { $0.descriptor.identifier == "bollinger" }
+        showsVWAP = persisted.contains { $0.descriptor.identifier == "vwap" }
+        showsRSI = persisted.contains { $0.descriptor.identifier == "rsi" }
+        showsMACD = persisted.contains { $0.descriptor.identifier == "macd" }
     }
 
     private var footer: some View {
@@ -139,6 +215,9 @@ private struct MarketChartSection: View {
     let product: Product
     let indicators: [ChartIndicator]
     let showsVolume: Bool
+    let style: CandleChartStyle
+    /// The level entered in `PriceAlertRow`, or `nil` when no alert is set.
+    let alertLevel: Double?
     @Binding var attempt: Int
     @Binding var source: DataSourceKind
     @Binding var drawings: [Drawing]
@@ -146,9 +225,49 @@ private struct MarketChartSection: View {
     @Binding var selectedDrawingID: UUID?
     let drawingColor: DrawingColor
 
+    /// Transient text shown when `alertLevel` fires — cleared a couple of seconds later. Demo-only
+    /// UI; a real app would want a system notification instead (see `priceCrossings` doc comment on
+    /// why CandleKit doesn't provide one itself).
+    @State private var firedAlertText: String?
+
     var body: some View {
         chart
             .animation(.easeInOut(duration: 0.15), value: feed.candles.isEmpty)
+            .overlay(alignment: .top) {
+                if let firedAlertText {
+                    Text(firedAlertText)
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.orange, in: Capsule())
+                        .foregroundStyle(.white)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            // Re-checked on every update, not just when a new candle is appended — a live tick that
+            // updates the in-progress candle in place can cross the level just as well, and
+            // `priceCrossings` is written to handle both cases identically (see its doc comment).
+            .onChange(of: feed.candles) { _, candles in
+                checkPriceAlert(candles)
+            }
+    }
+
+    /// Roadmap 9.3's `priceCrossings(in:levels:)`, wired to the one level this demo lets you set.
+    private func checkPriceAlert(_ candles: [Candle]) {
+        guard let alertLevel else { return }
+        let crossings = priceCrossings(in: candles, levels: [alertLevel])
+        guard let crossing = crossings.first else { return }
+        let direction = crossing.direction == .upward ? "up through" : "down through"
+        let digits = PriceScale.suggestedFractionDigits(forPrice: alertLevel)
+        let level = String(format: "%.\(digits)f", alertLevel)
+        withAnimation {
+            firedAlertText = "\(product.name) crossed \(direction) \(level)"
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            withAnimation { firedAlertText = nil }
+        }
     }
 
     // When candles.isEmpty flips, the .animation modifier above crossfades between
@@ -181,7 +300,8 @@ private struct MarketChartSection: View {
         CandlestickChart(feed.candles, state: chartState)
             // Frosted price axis with candles peeking through as they scroll underneath — opted in
             // explicitly here since the library default keeps the classic opaque axis unchanged.
-            .candleChartStyle(CandleChartStyle(priceAxisMaterial: .ultraThinMaterial))
+            // App-owned state, not a constant, so Save/Load Layout has something to restore.
+            .candleChartStyle(style)
             .indicators(indicators)
             .volumeVisible(showsVolume)
             .drawings($drawings)
@@ -200,6 +320,47 @@ private struct MarketChartSection: View {
     private var failureMessage: String? {
         guard feed.candles.isEmpty, case let .failed(message) = feed.status else { return nil }
         return message
+    }
+}
+
+/// Simple `Identifiable` wrapper so a save/load result can drive `.alert(item:)`.
+private struct LayoutAlert: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+}
+
+/// A single text field + button that demonstrates roadmap 9.3's `priceCrossings(in:levels:)` — see
+/// `MarketChartSection.checkPriceAlert`. Deliberately minimal: one level, no persistence, no real
+/// notification, matching CandleKit's own stance of shipping the primitive and not an alerting
+/// system.
+private struct PriceAlertRow: View {
+    @Binding var levelText: String
+    @Binding var activeLevel: Double?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "bell")
+                .foregroundStyle(.secondary)
+            TextField("Alert price", text: $levelText)
+                .keyboardType(.decimalPad)
+                .textFieldStyle(.roundedBorder)
+            if activeLevel != nil {
+                Button("Clear") {
+                    activeLevel = nil
+                    levelText = ""
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            } else {
+                Button("Set Alert") {
+                    activeLevel = Double(levelText)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(Double(levelText) == nil)
+            }
+        }
     }
 }
 
@@ -335,9 +496,16 @@ private struct ChartOptionsMenu: View {
     @Binding var showsRSI: Bool
     @Binding var showsMACD: Bool
     let chartState: CandleChartState
+    let onSaveLayout: () -> Void
+    let onLoadLayout: () -> Void
 
     var body: some View {
         Menu {
+            Section("Layout") {
+                Button("Save Layout", systemImage: "square.and.arrow.down") { onSaveLayout() }
+                Button("Load Layout", systemImage: "square.and.arrow.up") { onLoadLayout() }
+                    .disabled(!DemoLayoutStorage.hasSavedLayout)
+            }
             Picker("Data", selection: $source) {
                 ForEach(DataSourceKind.allCases) { kind in
                     Text(kind.rawValue).tag(kind)

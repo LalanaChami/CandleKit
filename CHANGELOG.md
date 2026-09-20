@@ -6,6 +6,65 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added — layout persistence, price-crossing primitive, manual price scaling (roadmap 7.3, 9.3, 4.3)
+
+The gap between "cool demo" and "a tool someone actually tracks a position with across days": nothing
+persisted before this — every drawing, indicator, and style choice lived only in `@State` and was
+lost on relaunch. This closes that gap, plus the two other most-requested trader-facing primitives.
+
+- **`ChartLayout: Codable` (7.3).** New `CandleKitCore.ChartLayout` — style, active indicators
+  (with colors, line width, visibility), drawings, and viewport, in one versioned `Codable` value.
+  Reuses the existing `Codable` `Drawing` and `IndicatorDescriptor` infrastructure rather than
+  inventing new serialization. `schemaVersion` is checked on decode (`ChartLayoutError
+  .unsupportedSchemaVersion` on a newer, unrecognized version); `indicators`/`drawings` default to
+  `[]` when absent, so a payload from a future version that added a field still loads. `Viewport` is
+  now `Codable`. A new `CandleKit`-layer file, `ChartLayout+CandleKit.swift`, bridges
+  `CandleChartStyle`/`ChartIndicator` (which use `SwiftUI.Color`) to and from the portable snapshot —
+  the same UI-boundary pattern `DrawingColor+SwiftUI.swift` already established, which itself gained
+  the reverse `DrawingColor.init(_ color: Color)` conversion needed here. `CandleChartStyle
+  .priceAxisMaterial` deliberately isn't captured: `Material` has no public API to read an arbitrary
+  value back into a named case, so the save direction has no possible implementation — restoring a
+  layout always sets it back to `nil`, and an app using the glass axis re-applies that setting
+  itself. `CandleChartState` gained `currentViewport` and `restoreViewport(_:)` so a saved viewport
+  can be read back and re-applied, clamped to whatever data is currently loaded.
+- **Price-crossing primitive (9.3).** New `priceCrossings(in:levels:)` (`CandleKitCore
+  /PriceCrossing.swift`) — pure Foundation, no dependency on `CandlestickChart` or any chart state.
+  Answers "did the price cross this level," comparing closes between the two most recent candles;
+  works the same for a newly appended candle and a live tick updating the last candle in place.
+  Deliberately not an alerting system — no notification scheduling, no persisted watchlist — per the
+  roadmap's "what CandleKit will not become": an app wires its own notification and persistence to
+  this primitive, as the Demo app now does.
+- **Manual price-axis scaling (4.3).** `CandleChartState.PriceScaleMode` (`.automatic` /
+  `.manual(ClosedRange<Double>)`), `setManualPriceRange(_:)`, `resetPriceScale()`, and
+  `currentPriceRange`. `makeFrame` now skips autoscaling entirely while in manual mode — the range
+  stays put until reset, even as new candles arrive, matching every real trading app's behavior.
+  `CandlestickChart` gained a `PriceAxisScaleGesture` overlay, scoped to just the price-axis column
+  (mirroring the existing glass-axis panel's positioning): drag to rescale around the range's center,
+  double-tap to return to autoscale. Plain SwiftUI gestures on a new, previously-untouched region —
+  not routed through the existing UIKit pan/pinch/long-press coordinator — so it can't affect
+  ScrollView-embedded charts or the existing gesture set.
+- **Renamed an internal type to avoid a naming collision:** `ChartFrame.swift`'s internal
+  screen-layout struct (pane/axis rects) is now `ChartRegions`, freeing up the `ChartLayout` name for
+  the new public persistence type above. Not part of the public API — nothing outside this package
+  could have referenced the old internal name.
+- **Demo app:** a "Layout" section in the chart-options menu (Save Layout / Load Layout), a price
+  alert row (enter a level, get a banner when it's crossed), and the chart's style is now app-owned
+  `@State` instead of a constant, so there's something for Save/Load to actually round-trip. Dragging
+  the price axis works with no Demo-specific code, once the library change landed.
+
+#### Verification
+
+No Swift toolchain is available in the environment this was written in (`swift`/`swiftc` not found,
+and `download.swift.org` was blocked), so **none of this was compiled or run** — not even the
+Linux-buildable `CandleKitCore` parts, which would ordinarily be the one thing checkable from the
+command line. Reviewed carefully by hand against the existing code's own patterns. Before relying on
+this, at minimum: `swift build && swift test` (covers `ChartLayout`, `PriceCrossing`, and `Viewport
+: Codable`, including their new test files); an iOS build (`Sources/CandleKit` and the Demo app are
+untouched by any Linux-side verification); Save → relaunch → Load actually restores drawings,
+indicators, and style; dragging the price axis rescales and double-tapping resets, without breaking
+panning/pinching on the chart itself or scrolling on a ScrollView-embedded chart tab; and a price
+alert fires on a live tick crossing the entered level.
+
 ### Added — drawing tools trader-UX pass (color, live price/time readout, haptics)
 
 Direct feedback: drawing tools worked, but didn't yet feel like something a trader would reach for —

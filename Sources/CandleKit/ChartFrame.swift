@@ -37,7 +37,7 @@ struct ChartPaneLayout: Identifiable {
 }
 
 /// Rectangles for each chart region, in the chart's local coordinates.
-struct ChartLayout {
+struct ChartRegions {
     let pricePane: ChartPaneLayout
     /// One pane per indicator that asked for its own, stacked top to bottom under the price.
     let indicatorPanes: [ChartPaneLayout]
@@ -75,7 +75,7 @@ struct ChartLayout {
         showsVolume: Bool,
         indicatorPaneHeights: [(id: String, height: CGFloat)] = []
     ) {
-        let content = ChartLayout.contentRect(size: size, metrics: metrics)
+        let content = ChartRegions.contentRect(size: size, metrics: metrics)
         let plotWidth = content.width
         let axisWidth = metrics.priceAxisWidth
         // The axis column's own left edge doesn't move when overlap is nonzero — only the plot
@@ -167,7 +167,7 @@ struct ResolvedPane: Identifiable {
 /// Everything the renderers need for one frame, computed once per render.
 struct ChartFrame {
     let candles: [Candle]
-    let layout: ChartLayout
+    let layout: ChartRegions
     let viewport: Viewport
     let visible: Range<Int>
     let priceScale: LinearScale

@@ -17,4 +17,18 @@ extension Color {
         )
     }
 }
+
+extension DrawingColor {
+    /// The reverse of `Color.init(_:)` above, needed so a saved `ChartLayout`
+    /// (`ChartLayout+CandleKit.swift`) can capture a chart style's `Color` properties in the same
+    /// portable form a drawing's own colour already uses. `UIColor`'s RGBA accessor is the
+    /// straightforward way to pull components back out of an opaque `Color` — resolving through
+    /// `.sRGB` on the way in above means round-tripping through it here is exact, not approximate.
+    public init(_ color: Color) {
+        let uiColor = UIColor(color)
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, opacity: CGFloat = 0
+        uiColor.getRed(&red, green: &green, blue: &blue, alpha: &opacity)
+        self.init(red: Double(red), green: Double(green), blue: Double(blue), opacity: Double(opacity))
+    }
+}
 #endif

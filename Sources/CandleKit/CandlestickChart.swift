@@ -90,7 +90,7 @@ public struct CandlestickChart: View {
                 // Covers every pane, so a drag starting on an indicator pane still pans the chart.
                 // Depends only on the size and metrics — never on which indicators are present — so
                 // the gesture view is positioned without waiting on a rendered ChartFrame.
-                let content = ChartLayout.contentRect(size: proxy.size, metrics: metrics)
+                let content = ChartRegions.contentRect(size: proxy.size, metrics: metrics)
 
                 ZStack(alignment: .topLeading) {
                     ChartContentLayer(
@@ -104,6 +104,7 @@ public struct CandlestickChart: View {
                         style: style
                     )
                     PriceAxisGlassPanel(state: state, style: style)
+                    PriceAxisScaleGesture(state: state)
                     CrosshairLayer(state: state, style: style)
                     LastPriceBadge(state: state, candles: candles, style: style)
                     if drawingsBinding != nil {
@@ -256,6 +257,50 @@ private struct LastPriceBadge: View {
             .frame(width: axis.width, height: Self.height, alignment: .leading)
             .position(x: axis.minX + axis.width / 2, y: y)
             .allowsHitTesting(false)
+        }
+    }
+}
+
+/// Lets a trader drag the price axis to rescale the chart, and double-tap it to return to
+/// autoscale — roadmap 4.3. See `CandleChartState.PriceScaleMode`.
+///
+/// Positioned to just the axis column, the same way `PriceAxisGlassPanel` below is. The
+/// content-covering `ChartGestureView` is sized to `ChartRegions.contentRect`, which stops before
+/// this column, so nothing else already reacts to touches here — this doesn't compete with, or
+/// need to be routed through, the existing UIKit pan/pinch/long-press/double-tap recognizers.
+private struct PriceAxisScaleGesture: View {
+    let state: CandleChartState
+
+    /// The price range in effect when the current drag began. Captured on the drag's first
+    /// `onChanged` so every subsequent update rescales from that same baseline instead of
+    /// compounding change on top of change on every frame of finger movement.
+    @State private var dragBaseline: ClosedRange<Double>?
+
+    var body: some View {
+        let _ = state.revision
+        if let frame = state.currentFrame {
+            let axis = frame.layout.priceAxis
+            Color.clear
+                .contentShape(Rectangle())
+                .frame(width: axis.width, height: axis.height)
+                .position(x: axis.minX + axis.width / 2, y: axis.midY)
+                .gesture(
+                    DragGesture(minimumDistance: 2)
+                        .onChanged { value in
+                            guard let baseline = dragBaseline ?? state.currentPriceRange else { return }
+                            if dragBaseline == nil { dragBaseline = baseline }
+                            let center = (baseline.lowerBound + baseline.upperBound) / 2
+                            let halfSpan = (baseline.upperBound - baseline.lowerBound) / 2
+                            // Dragging up (negative translation) narrows the span — zooms in;
+                            // dragging down widens it. Standard trading-app convention.
+                            let scaledHalfSpan = halfSpan * pow(2, Double(value.translation.height) / 200)
+                            state.setManualPriceRange((center - scaledHalfSpan)...(center + scaledHalfSpan))
+                        }
+                        .onEnded { _ in dragBaseline = nil }
+                )
+                .simultaneousGesture(
+                    TapGesture(count: 2).onEnded { state.resetPriceScale() }
+                )
         }
     }
 }

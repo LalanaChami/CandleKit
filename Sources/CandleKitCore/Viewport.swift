@@ -25,7 +25,10 @@ public struct ZoomLimits: Hashable, Sendable {
 /// The horizontal axis is measured in *positions*: candle `i` occupies `[i, i + 1)` and is centered
 /// at `i + 0.5`. Indexing by position instead of timestamp means market closures (nights, weekends,
 /// holidays) never leave gaps. The type has no UI dependencies, so every mapping is unit tested.
-public struct Viewport: Hashable, Sendable {
+///
+/// `Codable` so a `ChartLayout` (see `ChartLayout.swift`) can capture and restore exactly where a
+/// trader left the chart scrolled and zoomed to.
+public struct Viewport: Hashable, Sendable, Codable {
     /// Position shown at the right edge of the plot. Fractional values allow smooth panning.
     public var rightEdge: Double
     /// Width of one candle slot, in points. This is the zoom level.

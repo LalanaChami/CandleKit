@@ -28,6 +28,33 @@ public final class CandleChartState {
 
     private(set) var crosshairY: CGFloat? = nil
 
+    /// Whether the price axis autoscales to the visible candles (the default) or is pinned to a
+    /// range the trader set by dragging the axis. See `setManualPriceRange(_:)`.
+    public enum PriceScaleMode: Sendable, Equatable {
+        case automatic
+        case manual(ClosedRange<Double>)
+    }
+
+    /// Observed (not `@ObservationIgnored`) so a custom price-axis label or legend can react to the
+    /// mode changing, e.g. to show a "reset" affordance while manual.
+    public private(set) var priceScaleMode: PriceScaleMode = .automatic
+
+    /// The price range the chart is currently drawing, whether autoscaled or manually set. `nil`
+    /// only before the first frame has been laid out.
+    public var currentPriceRange: ClosedRange<Double>? { cachedPriceRange }
+
+    /// Pins the price axis to `range`, replacing autoscaling until `resetPriceScale()` is called.
+    /// Invalid ranges (non-finite bounds, or an empty/reversed range) are ignored.
+    public func setManualPriceRange(_ range: ClosedRange<Double>) {
+        guard range.lowerBound.isFinite, range.upperBound.isFinite, range.upperBound > range.lowerBound else { return }
+        priceScaleMode = .manual(range)
+    }
+
+    /// Returns the price axis to autoscaling against the visible candles.
+    public func resetPriceScale() {
+        priceScaleMode = .automatic
+    }
+
     // MARK: Not observed
     //
     // These are updated while SwiftUI evaluates the chart body (for example, shifting the viewport when
@@ -133,6 +160,19 @@ public final class CandleChartState {
     /// Scrolls by whole candles. Positive values move toward newer data.
     public func scroll(byCandles count: Int) {
         pan(byPoints: -Double(count) * viewport.spacing)
+    }
+
+    /// This chart's current scroll position and zoom level, suitable for a `ChartLayout` (see
+    /// `ChartLayout.viewport`). `viewport` itself stays internal — `CandleChartState` is otherwise
+    /// the only thing that reads or writes it — so this is the one sanctioned way out.
+    public var currentViewport: Viewport { viewport }
+
+    /// Restores a scroll position and zoom level saved from `currentViewport`, clamping it to the
+    /// current data the same way every other viewport change here does, so a layout saved against
+    /// a longer series than the one currently loaded doesn't scroll past its edge.
+    public func restoreViewport(_ viewport: Viewport) {
+        self.viewport = viewport
+        commitViewport()
     }
 
     // MARK: Gesture entry points
@@ -429,7 +469,7 @@ public final class CandleChartState {
             effectiveMetrics.priceAxisOverlap = 0
         }
 
-        let layout = ChartLayout(
+        let layout = ChartRegions(
             size: size,
             metrics: effectiveMetrics,
             showsVolume: showsVolume,
@@ -508,7 +548,11 @@ public final class CandleChartState {
         // Update on data change, zoom (change == .unchanged but !isScrolling covers non-pan interactions),
         // or when no cache exists yet. A ±15-candle window means occasional boundary candles don't jitter
         // the scale even when the cache refreshes.
-        if !isScrolling || cachedPriceRange == nil || change != .unchanged {
+        if case .manual(let range) = priceScaleMode {
+            // The trader grabbed the axis — stay put until `resetPriceScale()`, regardless of new
+            // data or scroll state, same as every real trading app.
+            cachedPriceRange = range
+        } else if !isScrolling || cachedPriceRange == nil || change != .unchanged {
             ChartPerformance.measure(.priceRange) {
                 let priceWindow = max(0, visible.lowerBound - 15)..<min(newCandles.count, visible.upperBound + 15)
                 cachedPriceRange = PriceScale.autoRange(for: newCandles, in: priceWindow, including: priceOverlaySeries) ?? 0...1

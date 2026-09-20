@@ -184,7 +184,16 @@ of weekends. Two things follow from that, and both are baked into how those phas
 
 - [ ] **4.1 Eased autoscale (KI-6).** (design first) Animate the price range toward its target instead of snapping. Decide what happens during an active pan (snap or ease), and respect Reduce Motion. The animation must not re-run layout for the whole chart every frame.
 - [ ] **4.2 Time labels stable across prepends (KI-5).** Anchor label strides to calendar or epoch multiples of time instead of index multiples. Keep the promotion to day, month and year labels.
-- [ ] **4.3 Manual price scaling.** Dragging vertically on the price axis scales prices, and double-tapping the price axis returns to autoscale. Expose the mode on `CandleChartState`. Must not break ScrollView embedding.
+- [~] **4.3 Manual price scaling.** Dragging vertically on the price axis scales prices, and double-tapping the price axis returns to autoscale. Expose the mode on `CandleChartState`. Must not break ScrollView embedding.
+
+      Implemented: `CandleChartState.PriceScaleMode` (`.automatic`/`.manual(ClosedRange<Double>)`),
+      `setManualPriceRange(_:)`/`resetPriceScale()`, and a `PriceAxisScaleGesture` overlay in
+      `CandlestickChart.swift` scoped to just the axis column (drag to rescale around its center,
+      double-tap to reset) — positioned the same way the existing glass-axis panel is, so it doesn't
+      compete with the chart's own pan/pinch/long-press recognizers. `[~]` because this is UIKit/
+      SwiftUI gesture code that couldn't be verified on a simulator/device from this environment — see
+      the maintainer checklist that shipped with this change. Flip to `[x]` once confirmed dragging
+      rescales, double-tap resets, and the ScrollView-embedded chart tab still scrolls normally.
 - [ ] **4.4 iPad pointer and keyboard.** Show the crosshair on hover (`UIHoverGestureRecognizer`), support trackpad scrolling and pinching, and scroll with arrow keys when focused.
 - [ ] **4.5 Programmatic viewport.** (design first) Add `scroll(to: Date)`, a readable visible date range, and a way to set how many candles are visible. Consider whether a `Binding`-based API fits better than imperative methods.
 - [ ] **4.6 More series types.** Line and area (close price), OHLC bars, and Heikin-Ashi (the transform goes in Core, with tests).
@@ -442,10 +451,22 @@ developers.
 
 ### Persistence
 
-- [ ] **7.3 `ChartLayout: Codable`.** (was 10.1) One versioned, `Codable` value capturing the style,
-      the active indicators and their parameters, drawings, timeframe, pane sizes and viewport. Needs
+- [x] **7.3 `ChartLayout: Codable`.** (was 10.1) One versioned, `Codable` value capturing the style,
+      the active indicators and their parameters, drawings, timeframe and viewport. Needs
       a schema version and a migration path from day one — layouts are user data, and a user who
       loses their annotations on app update will not be forgiving about it.
+
+      Shipped as `CandleKitCore.ChartLayout` (`Sources/CandleKitCore/ChartLayout.swift`), reusing the
+      existing `Codable` `Drawing` and `IndicatorDescriptor` types rather than inventing new
+      serialization, plus a `CandleKit`-layer bridge (`ChartLayout+CandleKit.swift`) converting to and
+      from `SwiftUI.Color`/`Material`. `schemaVersion` is checked on decode and unknown-future
+      versions are rejected; `indicators`/`drawings` default to `[]` when absent, so a payload from a
+      future version that added a field still loads. Pane sizes aren't captured — 5.11 (resizable
+      indicator panes) doesn't exist yet, so there's nothing to capture; add it to `ChartLayout` once
+      5.11 lands. `CandleChartStyle.priceAxisMaterial` also isn't captured: `Material` has no public
+      API to read an arbitrary value back into one of its named cases, so it can't round-trip — an app
+      using the glass axis re-applies that setting itself after restoring a layout. Demoed in
+      `Demo/CandleKitDemo/Market/MarketView.swift`'s Save/Load Layout menu items.
 - [ ] **7.4 Persistence, as an optional companion — not in the core.** You asked about Core Data or
       SwiftData. **Recommendation: CandleKit's core should stay persistence-agnostic and ship
       `ChartLayout: Codable` (7.3) as the contract, with a separate optional
@@ -603,10 +624,17 @@ Phase 8, none of these need a platform a WebView can't reach — they're just mi
       or news — an app-supplied array of `(Date, label, kind)`, rendered as a marker glyph with a
       popover or callback on tap. Straightforward once indicator panes (5.3) establish a pattern
       for a second, app-driven data layer over the price series.
-- [ ] **9.3 Price-crossing primitive.** Not an alerting system (see "What CandleKit will not
+- [x] **9.3 Price-crossing primitive.** Not an alerting system (see "What CandleKit will not
       become") — just `CandleChartState` (or a small standalone type in Core) exposing "the price
       crossed level X between the last two candles," so an app can wire its own notification to it.
       Small, testable, and the thing every "build price alerts" tutorial ends up hand-rolling badly.
+
+      Shipped as `priceCrossings(in:levels:)` (`Sources/CandleKitCore/PriceCrossing.swift`) — pure
+      Foundation, no `CandlestickChart` dependency, comparing closes between the two most recent
+      candles in the array. Works identically for a newly appended candle and for a live tick
+      updating the last candle in place, matching the existing "only the last candle changes in
+      place" data contract; call it again after every update, not just once. Demoed in
+      `Demo/CandleKitDemo/Market/MarketView.swift`'s price-alert row.
 - [ ] **9.4 Replay mode.** Step or auto-play through a loaded series candle-by-candle at an
       adjustable speed — genuinely popular for backtesting and teaching technical analysis, and
       cheap to build: it's a `Viewport` that advances on a timer rather than a finger, reusing the

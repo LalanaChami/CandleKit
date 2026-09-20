@@ -42,6 +42,8 @@ Drag horizontally to scroll, and release with some speed for momentum. Pinch to 
 
 Vertical drags are left alone, so a chart inside a `ScrollView` doesn't trap the page.
 
+Drag the price axis itself, on the right edge, to rescale prices — up narrows the range, down widens it — and double-tap the axis to return to autoscale. This is a separate gesture region from the rest of the chart, so it doesn't affect scrolling or zooming.
+
 ## Live data
 
 Just update your array. The chart compares each new array with the previous one and adjusts:
@@ -105,6 +107,57 @@ CandlestickChart(candles, state: chartState)
 ```
 
 `CandleChartState` also offers `resetZoom()`, `scroll(byCandles:)` and the observable `crosshairIndex`.
+
+### Manual price-axis scaling
+
+Dragging the price axis (see [Interacting with the chart](#interacting-with-the-chart)) drives `CandleChartState.priceScaleMode`, an observable `.automatic` / `.manual(ClosedRange<Double>)`. Set or clear it programmatically too:
+
+```swift
+chartState.setManualPriceRange(95_000...105_000)
+chartState.currentPriceRange   // the range currently in effect, whichever mode it came from
+chartState.resetPriceScale()   // back to autoscaling
+```
+
+While manual, the range stays put as new candles arrive — it doesn't recompute until you reset it.
+
+## Saving and restoring a layout
+
+`ChartLayout` is a single, versioned `Codable` value capturing everything a trader would expect to come back after relaunching: chart style, active indicators (with their colors and settings), drawings, and scroll/zoom position.
+
+```swift
+let layout = ChartLayout(
+    style: style.snapshot,                    // CandleChartStyle → ChartLayout.StyleSnapshot
+    indicators: indicators.map(\.persisted),  // [ChartIndicator] → [PersistedIndicator]
+    drawings: drawings,
+    viewport: chartState.currentViewport
+)
+let data = try JSONEncoder().encode(layout)
+try data.write(to: layoutURL)
+
+// Later, or after relaunch:
+let restored = try JSONDecoder().decode(ChartLayout.self, from: data)
+style = CandleChartStyle(restored.style)
+drawings = restored.drawings
+chartState.restoreViewport(restored.viewport)
+// Rebuild each indicator against your catalog; an entry an app no longer recognizes is dropped
+// rather than failing the whole load:
+indicators = restored.indicators.compactMap { ChartIndicator($0, catalog: myCatalog) }
+```
+
+`ChartLayout` stores where you scroll and zoom, not what timeframe or symbol you were looking at — those are your app's own concepts, so store them alongside it (there's an optional `timeframeIdentifier: String?` slot for exactly this, left uninterpreted by CandleKit). Decoding rejects a `schemaVersion` newer than the library understands, and defaults `indicators`/`drawings` to empty when a future version's payload omits them, so old and new versions of your app can each open what the other saved. `CandleChartStyle.priceAxisMaterial` doesn't round-trip — `Material` has no public API to read an arbitrary value back into a named case — so a restored style always has it `nil`; reapply it yourself if you use the glass axis. See the Demo app's Save/Load Layout menu items for a complete, working example.
+
+## Price alerts
+
+`priceCrossings(in:levels:)` answers "did the price cross this level," comparing closes between the two most recent candles in your array — nothing more. It's not an alerting system: no notification scheduling, no persisted watchlist, no UI. Wire your own around it:
+
+```swift
+for crossing in priceCrossings(in: candles, levels: [100_000]) {
+    // crossing.direction is .upward or .downward; crossing.candle is the one it happened on.
+    scheduleNotification(for: crossing)
+}
+```
+
+Works the same whether `candles` just had a new one appended or had its last candle updated in place by a live tick — call it again after every update, not just once. See the Demo app's price-alert row.
 
 ## Customization
 
