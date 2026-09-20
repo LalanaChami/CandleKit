@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="CandleKit logo">
+  <rect width="64" height="64" rx="12" fill="#0f172a"/>
+  <line x1="16" y1="10" x2="16" y2="22" stroke="#e2453c" stroke-width="2"/>
+  <rect x="11" y="22" width="10" height="16" rx="1.5" fill="#e2453c"/>
+  <line x1="16" y1="38" x2="16" y2="48" stroke="#e2453c" stroke-width="2"/>
+
+  <line x1="32" y1="16" x2="32" y2="26" stroke="#22c55e" stroke-width="2"/>
+  <rect x="27" y="26" width="10" height="22" rx="1.5" fill="#22c55e"/>
+  <line x1="32" y1="48" x2="32" y2="54" stroke="#22c55e" stroke-width="2"/>
+
+  <line x1="48" y1="8" x2="48" y2="18" stroke="#22c55e" stroke-width="2"/>
+  <rect x="43" y="18" width="10" height="12" rx="1.5" fill="#22c55e"/>
+  <line x1="48" y1="30" x2="48" y2="40" stroke="#22c55e" stroke-width="2"/>
+</svg>

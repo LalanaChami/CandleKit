@@ -1,0 +1,32 @@
+/**
+ * CandleKit docs theme tweaks. Docusaurus's Infima defaults do most of the work;
+ * this file only nudges the accent colors toward a "bullish green" that fits a
+ * candlestick-charting library, in both light and dark mode.
+ */
+
+:root {
+  --ifm-color-primary: #1a9c5c;
+  --ifm-color-primary-dark: #178c52;
+  --ifm-color-primary-darker: #16834d;
+  --ifm-color-primary-darkest: #126c3f;
+  --ifm-color-primary-light: #1dac66;
+  --ifm-color-primary-lighter: #1eb56c;
+  --ifm-color-primary-lightest: #35c37e;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #35c37e;
+  --ifm-color-primary-dark: #1fb96d;
+  --ifm-color-primary-darker: #1dae67;
+  --ifm-color-primary-darkest: #188f55;
+  --ifm-color-primary-light: #4bc98a;
+  --ifm-color-primary-lighter: #57cd92;
+  --ifm-color-primary-lightest: #7bd8a9;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+.markdown img {
+  border-radius: 8px;
+  border: 1px solid var(--ifm-color-emphasis-200);
+}
