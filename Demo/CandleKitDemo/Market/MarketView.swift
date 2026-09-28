@@ -30,23 +30,6 @@ private enum Haptics {
     }
 }
 
-private extension View {
-    /// `.toolbarBackground(.hidden, for:)` hides the classic solid nav-bar plate, but iOS 26's
-    /// "Liquid Glass" redesign draws that same plate through a separate, newer API instead —
-    /// `toolbarBackgroundVisibility(_:for:)`, iOS 18+ only. This project's deployment target is
-    /// iOS 17, so the call is gated behind an availability check rather than raising the target
-    /// just for one cosmetic modifier: pre-18 devices get the classic hide, 18+ additionally gets
-    /// the glass-era one, and both together cover the plate on every OS this app runs on.
-    @ViewBuilder
-    func hidingNavigationBarGlassBackground() -> some View {
-        if #available(iOS 18.0, *) {
-            self.toolbarBackgroundVisibility(.hidden, for: .navigationBar)
-        } else {
-            self
-        }
-    }
-}
-
 struct MarketView: View {
     @State private var feed = MarketFeed()
     @State private var chartState = CandleChartState(candleSpacing: 9)
@@ -99,7 +82,17 @@ struct MarketView: View {
     var body: some View {
         let configuration = FeedConfiguration(source: source, product: product, timeframe: timeframe, attempt: attempt)
 
-        NavigationStack {
+        // No NavigationStack here: this screen never pushes anywhere, and on iOS 26
+        // NavigationStack's own chrome was drawing a soft glass/scrim behind the safe area at
+        // the top of the screen — the "weird background" behind the header — independently of
+        // any navigationTitle/toolbar settings on it. Dropping the container removes that
+        // system-drawn layer entirely instead of continuing to fight it modifier by modifier.
+        // Without a NavigationStack (or its own hidden toolbar background) actually painting
+        // something behind the status bar, that strip is left to whatever the window happens to
+        // show through it — which reads as a mismatched gray panel over an otherwise white
+        // screen. Extending our own background up under the top safe area is what the removed
+        // nav bar used to do implicitly; now we do it explicitly instead of relying on it.
+        Group {
             // The chart sits between two slim chrome rows in an ordinary VStack, not under a
             // floating overlay — that's deliberate. Earlier this was a ZStack with the chart
             // full-bleed and the toolbar/dock drawn *on top* of it with guessed padding; the
@@ -110,6 +103,36 @@ struct MarketView: View {
             // chrome — while the rows themselves stay slim, glassy floating-looking pills rather
             // than the old full-width picker/toolbar/alert rows that made this screen feel busy.
             VStack(spacing: 8) {
+                // A hand-drawn header row, not a system navigation bar toolbar. iOS's own nav
+                // bar chrome kept showing a mismatched panel behind this row — a solid plate in
+                // some OS versions, iOS 26's floating "Liquid Glass" capsule in others — because
+                // both are drawn by the system with their own fill, not ours. Owning the row
+                // outright means it always matches the screen's actual background, on every OS.
+                HStack(spacing: 10) {
+                    FeedStatusBadge(status: feed.status, source: source)
+
+                    Spacer(minLength: 8)
+
+                    Text(product.name)
+                        .font(.headline)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 8)
+
+                    Button {
+                        Haptics.tap()
+                        showingChartOptions = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 32, height: 32)
+                            .background(.thinMaterial, in: Circle())
+                    }
+                    .accessibilityLabel("Chart options")
+                }
+                .padding(.top, 6)
+
                 HStack {
                     TimeframeStrip(timeframe: $timeframe)
                     Spacer(minLength: 0)
@@ -145,33 +168,7 @@ struct MarketView: View {
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
-            .navigationTitle(product.name)
-            .navigationBarTitleDisplayMode(.inline)
-            // The nav bar's own opaque background plate reads as a stray white panel behind the
-            // title now that the chart no longer runs full-bleed under it — hide it so the bar
-            // just floats over the same background as everything else on screen. iOS 26's
-            // "Liquid Glass" nav bar uses a newer, separate visibility knob for this same plate,
-            // so both are set to cover pre- and post-26 chrome.
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .hidingNavigationBarGlassBackground()
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    FeedStatusBadge(status: feed.status, source: source)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Haptics.tap()
-                        showingChartOptions = true
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .frame(width: 32, height: 32)
-                            .background(.thinMaterial, in: Circle())
-                    }
-                    .accessibilityLabel("Chart options")
-                }
-            }
+            .background(Color(.systemBackground).ignoresSafeArea(edges: .top))
             .overlay(alignment: .top) {
                 if let toast {
                     ToastView(toast: toast)
