@@ -231,6 +231,16 @@ private struct MarketChartSection: View {
     @State private var firedAlertText: String?
 
     var body: some View {
+        // Refreshed on every body evaluation — cheap, and keeps the closure's captured `alertLevel`
+        // current whenever the parent passes a new one. Deliberately not a SwiftUI
+        // `.onChange(of: feed.candles)`: `MarketFeed.liveTrades` can deliver a burst of several
+        // trades within one runloop turn, each mutating `candles` in turn, which fires `.onChange`'s
+        // action more than once before SwiftUI renders a frame in between — the "action tried to
+        // update multiple times per frame" diagnostic. Hooking the model's own mutation point via
+        // `setOnLiveTick` instead has no such frame dependency; see its doc comment in
+        // `MarketFeed.swift`. `priceCrossings` handles a newly appended candle and an in-place tick
+        // update identically (see its own doc comment), so this needs no case-by-case logic here.
+        let _ = feed.setOnLiveTick { candles in checkPriceAlert(candles) }
         chart
             .animation(.easeInOut(duration: 0.15), value: feed.candles.isEmpty)
             .overlay(alignment: .top) {
@@ -244,12 +254,6 @@ private struct MarketChartSection: View {
                         .padding(.top, 8)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
-            }
-            // Re-checked on every update, not just when a new candle is appended — a live tick that
-            // updates the in-progress candle in place can cross the level just as well, and
-            // `priceCrossings` is written to handle both cases identically (see its doc comment).
-            .onChange(of: feed.candles) { _, candles in
-                checkPriceAlert(candles)
             }
     }
 

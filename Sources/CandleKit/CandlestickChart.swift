@@ -104,7 +104,6 @@ public struct CandlestickChart: View {
                         style: style
                     )
                     PriceAxisGlassPanel(state: state, style: style)
-                    PriceAxisScaleGesture(state: state)
                     CrosshairLayer(state: state, style: style)
                     LastPriceBadge(state: state, candles: candles, style: style)
                     if drawingsBinding != nil {
@@ -116,6 +115,16 @@ public struct CandlestickChart: View {
                     )
                     .frame(width: content.width, height: content.height)
                     .position(x: content.midX, y: content.midY)
+                    // Last, so it wins hit-testing in its own narrow strip regardless of what's
+                    // beneath it. `ChartGestureView.content` is sized from `contentRect`, which
+                    // widens by `metrics.priceAxisOverlap` (so candles can slide under a glass axis)
+                    // — with the glass axis on, that overlap (70) is actually larger than
+                    // `priceAxisWidth` (~64), so `content` extends slightly past the axis's own left
+                    // edge and would otherwise claim these touches first, being earlier in this
+                    // ZStack. `PriceAxisScaleGesture`'s own hit-test area is just the axis rect, so
+                    // putting it on top only affects that strip — everywhere else still reaches
+                    // `ChartGestureView` exactly as before.
+                    PriceAxisScaleGesture(state: state)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("Candlestick chart"))

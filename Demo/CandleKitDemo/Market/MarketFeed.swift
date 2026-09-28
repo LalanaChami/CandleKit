@@ -34,6 +34,21 @@ final class MarketFeed {
     /// Guards against a cancelled run writing into a newer one while its awaits unwind.
     @ObservationIgnored private var generation = 0
 
+    /// Called synchronously right after a live trade updates `candles` — see `setOnLiveTick(_:)`.
+    /// Deliberately not a SwiftUI `.onChange(of: candles)` in the view layer: `liveTrades` can
+    /// deliver a burst of several trades within one runloop turn, each mutating `candles` in turn,
+    /// which fires `.onChange`'s action more than once before SwiftUI gets to render a frame in
+    /// between — exactly the "action tried to update multiple times per frame" diagnostic. Hooking
+    /// the model's own mutation point instead has no such frame dependency.
+    @ObservationIgnored private var liveTickHandler: (([Candle]) -> Void)?
+
+    /// Sets (or clears, with `nil`) the callback invoked after every live trade folds into
+    /// `candles`. Safe to call every time the caller's view body runs — it only replaces an
+    /// `@ObservationIgnored` closure, the same pattern `CandleChartState.setHandlers` uses.
+    func setOnLiveTick(_ handler: (([Candle]) -> Void)?) {
+        liveTickHandler = handler
+    }
+
     /// Runs until the calling task is cancelled. Use with `.task(id:)`.
     func run(_ configuration: FeedConfiguration) async {
         generation += 1
@@ -66,6 +81,7 @@ final class MarketFeed {
                 for try await trade in source.liveTrades(for: configuration.product, startingAt: startPrice) {
                     guard isCurrent(runGeneration) else { break }
                     apply(trade, interval: configuration.timeframe.seconds)
+                    liveTickHandler?(candles)
                     failures = 0
                 }
             } catch {
