@@ -466,7 +466,8 @@ developers.
       5.11 lands. `CandleChartStyle.priceAxisMaterial` also isn't captured: `Material` has no public
       API to read an arbitrary value back into one of its named cases, so it can't round-trip — an app
       using the glass axis re-applies that setting itself after restoring a layout. Demoed in
-      `Demo/CandleKitDemo/Market/MarketView.swift`'s Save/Load Layout menu items.
+      `Demo/CandleKitDemo/Market/MarketView.swift`'s Layouts sheet (named, multi-slot saves —
+      reachable from the chart-options button — not a single Save/Load pair as originally demoed).
 - [ ] **7.4 Persistence, as an optional companion — not in the core.** You asked about Core Data or
       SwiftData. **Recommendation: CandleKit's core should stay persistence-agnostic and ship
       `ChartLayout: Codable` (7.3) as the contract, with a separate optional
@@ -634,7 +635,8 @@ Phase 8, none of these need a platform a WebView can't reach — they're just mi
       candles in the array. Works identically for a newly appended candle and for a live tick
       updating the last candle in place, matching the existing "only the last candle changes in
       place" data contract; call it again after every update, not just once. Demoed in
-      `Demo/CandleKitDemo/Market/MarketView.swift`'s price-alert row.
+      `Demo/CandleKitDemo/Market/MarketView.swift`'s price-alert control (the bell in the floating
+      tool dock beneath the chart, not a permanent text row as originally demoed).
 - [ ] **9.4 Replay mode.** Step or auto-play through a loaded series candle-by-candle at an
       adjustable speed — genuinely popular for backtesting and teaching technical analysis, and
       cheap to build: it's a `Viewport` that advances on a timer rather than a finger, reusing the

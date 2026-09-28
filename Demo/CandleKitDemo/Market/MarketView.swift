@@ -29,6 +29,23 @@ private enum Haptics {
     }
 }
 
+private extension View {
+    /// `.toolbarBackground(.hidden, for:)` hides the classic solid nav-bar plate, but iOS 26's
+    /// "Liquid Glass" redesign draws that same plate through a separate, newer API instead —
+    /// `toolbarBackgroundVisibility(_:for:)`, iOS 18+ only. This project's deployment target is
+    /// iOS 17, so the call is gated behind an availability check rather than raising the target
+    /// just for one cosmetic modifier: pre-18 devices get the classic hide, 18+ additionally gets
+    /// the glass-era one, and both together cover the plate on every OS this app runs on.
+    @ViewBuilder
+    func hidingNavigationBarGlassBackground() -> some View {
+        if #available(iOS 18.0, *) {
+            self.toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+        } else {
+            self
+        }
+    }
+}
+
 struct MarketView: View {
     @State private var feed = MarketFeed()
     @State private var chartState = CandleChartState(candleSpacing: 9)
@@ -129,6 +146,13 @@ struct MarketView: View {
             .padding(.bottom, 8)
             .navigationTitle(product.name)
             .navigationBarTitleDisplayMode(.inline)
+            // The nav bar's own opaque background plate reads as a stray white panel behind the
+            // title now that the chart no longer runs full-bleed under it — hide it so the bar
+            // just floats over the same background as everything else on screen. iOS 26's
+            // "Liquid Glass" nav bar uses a newer, separate visibility knob for this same plate,
+            // so both are set to cover pre- and post-26 chrome.
+            .toolbarBackground(.hidden, for: .navigationBar)
+            .hidingNavigationBarGlassBackground()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     FeedStatusBadge(status: feed.status, source: source)

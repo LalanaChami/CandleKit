@@ -6,6 +6,65 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Changed — Demo app: Market screen redesign (named layouts, modern options sheet, floating controls)
+
+Direct feedback across a few rounds: the Market screen's chrome had grown busy (a segmented
+timeframe picker, drawing toolbar, and price-alert row each permanently stacked above the chart,
+plus a footer), the chart-options `Menu` read as "lame and old school," and there was nowhere to
+keep more than one saved layout at a time. This is a from-scratch pass on all of it — library code
+is untouched; everything here is `Demo/CandleKitDemo/Market/MarketView.swift` and
+`DemoLayoutStorage.swift`.
+
+- **Named, multi-slot layouts**, replacing the original single-file Save/Load pair. `SavedLayout
+  ` (`Identifiable, Codable, Equatable`: `id`, `name`, `savedAt`, `layout: ChartLayout`) is stored
+  as a JSON array by a rewritten `DemoLayoutStorage` (`loadAll`/`add`/`overwrite`/`rename`/`delete`),
+  one file in the app's Documents directory. A new `LayoutsSheet` lists every saved layout newest
+  first, with load-on-tap, swipe-to-delete, swipe/context-menu-to-rename, "update this one with the
+  current chart" (re-capture into an existing entry instead of piling up near-duplicates), and a
+  "+" to save the current chart as a new entry.
+- **The chart-options `Menu` is gone**, replaced by `ChartOptionsSheet` — a grouped, scrollable
+  sheet: a "Layouts" card (opens `LayoutsSheet`), a "Market" card for data source/symbol, and
+  icon-tile chips for each overlay/pane (SMA, EMA, Bollinger, VWAP, Volume, RSI, MACD) that light up
+  with the accent gradient when active, plus a Reset Zoom button. Opening Layouts from inside it
+  dismisses this sheet and presents `LayoutsSheet` after a short delay, rather than presenting both
+  at once (which races their two `.sheet` transitions against each other).
+- **The screen is no longer a stack of permanent rows.** The timeframe picker is now `TimeframeStrip`
+  — a floating pill row — and the drawing toolbar + a new compact `PriceAlertControl` (a bell that
+  expands in place into a price field, replacing the old always-open text row) share one floating
+  `FloatingToolDock` at the bottom. Both sit in an ordinary `VStack` alongside the chart (not a
+  `ZStack` overlay drawn on top of it — see Fixed, below, for why that distinction mattered), so the
+  chart gets real, substantially more vertical space than the original four-row layout. The footer
+  ("Drag to scroll, pinch to zoom…" and the data-source attribution line) is removed entirely.
+- **Haptics and non-blocking feedback**, applied consistently: `UISelectionFeedbackGenerator` for
+  picking/toggling something, `UIImpactFeedbackGenerator` for a committing action, and the two
+  system notification feels for "this succeeded" / "this fired" (price alert). A transient `Toast`
+  overlay replaces the old modal `.alert(item:)` for layout save/load/error feedback, so routine
+  confirmations no longer stop the trader mid-flow to dismiss them.
+
+#### Fixed
+
+- **Volume bars (and the time axis) hidden behind the floating tool dock.** The first cut of this
+  redesign put the chart full-bleed under a `ZStack`, with the toolbar/dock drawn as an *overlay* on
+  top of guessed padding. The chart's actual frame never shrank to make room, so it kept drawing its
+  volume bars and time axis all the way to the screen edge, and the dock's own background simply
+  painted over them. Fixed by switching to a plain `VStack` (pill row → chart → dock) so the chart
+  is given its real, reduced height and nothing it draws can end up hidden behind chrome.
+- **The toolbar's status badge could render as a bare dot**, with "Live"/"Simulated" clipped off
+  entirely — the toolbar was free to compress `FeedStatusBadge` below its intrinsic width whenever
+  the center title and trailing button claimed the rest of the space. Pinned to its own ideal size
+  with `.fixedSize()`; the title truncates instead, which it already does gracefully.
+- **The price-alert bell and the last drawing-tool icon could overlap** in the floating dock on
+  narrower screens — the drawing-tool strip's `.frame(maxWidth:)` wasn't actually clipping its
+  `ScrollView` content to that width. Switched to a fixed `.frame(width:)` with `.clipped()`, and
+  trimmed both the tool strip and the price field a bit further for headroom on smaller devices.
+- **A stray white panel behind the nav bar title.** Once the chart stopped running full-bleed under
+  the nav bar (the fix above), its own opaque background plate started reading as an unexplained
+  white panel behind "Bitcoin" and the floating timeframe strip beneath it.
+  `.toolbarBackground(.hidden, for: .navigationBar)` covers the classic plate; iOS 26's "Liquid
+  Glass" nav bar draws that same plate through a separate, newer, iOS 18+-only API instead
+  (`toolbarBackgroundVisibility(_:for:)`), so it's applied too, gated behind an availability check
+  since this project's deployment target is iOS 17.
+
 ### Added — layout persistence, price-crossing primitive, manual price scaling (roadmap 7.3, 9.3, 4.3)
 
 The gap between "cool demo" and "a tool someone actually tracks a position with across days": nothing

@@ -144,7 +144,7 @@ chartState.restoreViewport(restored.viewport)
 indicators = restored.indicators.compactMap { ChartIndicator($0, catalog: myCatalog) }
 ```
 
-`ChartLayout` stores where you scroll and zoom, not what timeframe or symbol you were looking at — those are your app's own concepts, so store them alongside it (there's an optional `timeframeIdentifier: String?` slot for exactly this, left uninterpreted by CandleKit). Decoding rejects a `schemaVersion` newer than the library understands, and defaults `indicators`/`drawings` to empty when a future version's payload omits them, so old and new versions of your app can each open what the other saved. `CandleChartStyle.priceAxisMaterial` doesn't round-trip — `Material` has no public API to read an arbitrary value back into a named case — so a restored style always has it `nil`; reapply it yourself if you use the glass axis. See the Demo app's Save/Load Layout menu items for a complete, working example.
+`ChartLayout` stores where you scroll and zoom, not what timeframe or symbol you were looking at — those are your app's own concepts, so store them alongside it (there's an optional `timeframeIdentifier: String?` slot for exactly this, left uninterpreted by CandleKit). Decoding rejects a `schemaVersion` newer than the library understands, and defaults `indicators`/`drawings` to empty when a future version's payload omits them, so old and new versions of your app can each open what the other saved. `CandleChartStyle.priceAxisMaterial` doesn't round-trip — `Material` has no public API to read an arbitrary value back into a named case — so a restored style always has it `nil`; reapply it yourself if you use the glass axis. See the Demo app's Layouts sheet (reachable from the chart-options button) for a complete, working example of saving, loading, renaming, and updating named layouts.
 
 ## Price alerts
 
@@ -157,7 +157,7 @@ for crossing in priceCrossings(in: candles, levels: [100_000]) {
 }
 ```
 
-Works the same whether `candles` just had a new one appended or had its last candle updated in place by a live tick — call it again after every update, not just once. See the Demo app's price-alert row.
+Works the same whether `candles` just had a new one appended or had its last candle updated in place by a live tick — call it again after every update, not just once. See the Demo app's price-alert control (the bell in the floating tool dock beneath the chart).
 
 ## Customization
 
