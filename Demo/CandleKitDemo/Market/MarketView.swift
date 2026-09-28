@@ -82,13 +82,23 @@ struct MarketView: View {
         let configuration = FeedConfiguration(source: source, product: product, timeframe: timeframe, attempt: attempt)
 
         NavigationStack {
-            // The chart is the base layer, edge to edge — every other control here is a floating
-            // overlay on top of it rather than a permanent row that pushes it down. That's the
-            // difference between "a chart with a toolbar above it" and "a screen that's mostly
-            // chart," which is what a trader actually wants most of their time in this tab.
-            ZStack {
-                // See the comment on this type below for why `feed.candles` (which changes on every
-                // live trade) is isolated to its own `View` instead of read directly here.
+            // The chart sits between two slim chrome rows in an ordinary VStack, not under a
+            // floating overlay — that's deliberate. Earlier this was a ZStack with the chart
+            // full-bleed and the toolbar/dock drawn *on top* of it with guessed padding; the
+            // chart's own frame never actually shrank, so CandleKit kept drawing its volume bars
+            // and time axis right up to the bottom edge, and the dock's background simply
+            // painted over them. A VStack gives the chart the real, reduced height that's left
+            // over once both rows are laid out, so nothing it draws can end up hidden behind
+            // chrome — while the rows themselves stay slim, glassy floating-looking pills rather
+            // than the old full-width picker/toolbar/alert rows that made this screen feel busy.
+            VStack(spacing: 8) {
+                HStack {
+                    TimeframeStrip(timeframe: $timeframe)
+                    Spacer(minLength: 0)
+                }
+
+                // See the comment on this type below for why `feed.candles` (which changes on
+                // every live trade) is isolated to its own `View` instead of read directly here.
                 MarketChartSection(
                     feed: feed,
                     chartState: chartState,
@@ -104,32 +114,19 @@ struct MarketView: View {
                     selectedDrawingID: $selectedDrawingID,
                     drawingColor: drawingColor
                 )
-                .ignoresSafeArea(edges: .bottom)
+                .frame(maxHeight: .infinity)
 
-                VStack(spacing: 0) {
-                    HStack {
-                        TimeframeStrip(timeframe: $timeframe)
-                        Spacer(minLength: 0)
-                    }
-                    // CandleKit draws its own latest-value header (a large last-price line, then a
-                    // date + OHLC + volume line) across the top of the chart itself; this clears
-                    // that whole band instead of sitting on top of it.
-                    .padding(.top, 58)
-
-                    Spacer(minLength: 0)
-
-                    FloatingToolDock(
-                        activeTool: $activeDrawingTool,
-                        drawings: $drawings,
-                        selectedDrawingID: $selectedDrawingID,
-                        drawingColor: $drawingColor,
-                        alertLevelText: $alertLevelText,
-                        activeAlertLevel: $activeAlertLevel
-                    )
-                    .padding(.bottom, 10)
-                }
+                FloatingToolDock(
+                    activeTool: $activeDrawingTool,
+                    drawings: $drawings,
+                    selectedDrawingID: $selectedDrawingID,
+                    drawingColor: $drawingColor,
+                    alertLevelText: $alertLevelText,
+                    activeAlertLevel: $activeAlertLevel
+                )
             }
             .padding(.horizontal, 12)
+            .padding(.bottom, 8)
             .navigationTitle(product.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -349,8 +346,10 @@ private struct MarketChartSection: View {
             .overlay(alignment: .top) {
                 if let firedAlert {
                     AlertFiredBanner(alert: firedAlert)
-                        // Clears both CandleKit's own header band and the floating timeframe strip.
-                        .padding(.top, 108)
+                        // Clears CandleKit's own latest-value header band drawn inside the chart
+                        // (the timeframe strip above is a sibling now, not an overlay, so it no
+                        // longer factors into this).
+                        .padding(.top, 54)
                         .transition(.asymmetric(
                             insertion: .move(edge: .top).combined(with: .opacity),
                             removal: .opacity
@@ -415,10 +414,11 @@ private struct MarketChartSection: View {
             .defaultDrawingStyle(DrawingStyle(color: drawingColor))
             .onReachOldestCandle { feed.loadOlder() }
             .overlay(alignment: .bottomTrailing) {
-                // Clears the price axis and the floating tool dock pinned to the bottom of the chart.
+                // Clears the price axis; the tool dock is a sibling row below the chart now; not
+                // an overlay, so it no longer needs extra clearance here.
                 JumpToLatestButton(state: chartState)
                     .padding(.trailing, 16)
-                    .padding(.bottom, 118)
+                    .padding(.bottom, 12)
             }
     }
 
@@ -614,7 +614,7 @@ private struct PriceAlertControl: View {
                 TextField("Price", text: $levelText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 84)
+                    .frame(width: 72)
                     .focused($fieldFocused)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
 
@@ -725,7 +725,7 @@ private struct DrawingToolPicker: View {
                 }
                 .padding(.vertical, 2)
             }
-            .frame(width: 210, alignment: .leading)
+            .frame(width: 176, alignment: .leading)
             .clipped()
 
             // Sets the color the *next* drawing starts as; when something is already selected, it
@@ -740,7 +740,7 @@ private struct DrawingToolPicker: View {
                     }
                     .padding(.vertical, 2)
                 }
-                .frame(width: 210, alignment: .leading)
+                .frame(width: 176, alignment: .leading)
                 .clipped()
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -1192,6 +1192,12 @@ struct FeedStatusBadge: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(.thinMaterial, in: Capsule())
+        // Toolbar items are otherwise free to compress this to whatever's left over after the
+        // center title and the trailing options button claim their own space — on a long product
+        // name that can squeeze this down to just the dot, with "Live"/"Simulated" clipped off
+        // entirely. Pinning it to its own ideal size keeps the label readable and lets the title
+        // truncate instead, which SwiftUI already does gracefully.
+        .fixedSize()
         .accessibilityElement(children: .combine)
         .animation(.easeInOut(duration: 0.2), value: status)
     }
