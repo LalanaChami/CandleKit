@@ -67,6 +67,7 @@ struct MarketView: View {
     // after a write, so the sheet's list and the toolbar's badge can't drift from what's on disk.
     @State private var savedLayouts: [SavedLayout] = DemoLayoutStorage.loadAll()
     @State private var showingLayoutsSheet = false
+    @State private var showingChartOptions = false
     @State private var pendingSaveName = ""
     @State private var showingSaveNamePrompt = false
     @State private var toast: Toast?
@@ -81,34 +82,13 @@ struct MarketView: View {
         let configuration = FeedConfiguration(source: source, product: product, timeframe: timeframe, attempt: attempt)
 
         NavigationStack {
-            VStack(spacing: 12) {
-                Picker("Timeframe", selection: $timeframe) {
-                    ForEach(Timeframe.allCases) { timeframe in
-                        Text(timeframe.label).tag(timeframe)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                DrawingToolPicker(
-                    activeTool: $activeDrawingTool,
-                    drawings: $drawings,
-                    selectedDrawingID: $selectedDrawingID,
-                    drawingColor: $drawingColor
-                )
-
-                PriceAlertRow(levelText: $alertLevelText, activeLevel: $activeAlertLevel)
-
-                // `feed` streams a new candle (or updates the in-progress one) on every live trade —
-                // often several times a second. Isolated into its own `View` (below) so that reading
-                // `feed.candles` doesn't taint *this* body's own Observation scope: before this was
-                // split out, `feed.candles` was read directly here (via this same chart content and
-                // a `.animation(value: feed.candles.isEmpty)`), which meant every trade re-evaluated
-                // all of `MarketView.body` — including `optionsMenu` below, even though its own
-                // content never reads `feed` at all. That's what looked like "the menu always gets
-                // refreshed": the toolbar's `Menu` was being torn down and rebuilt on every tick,
-                // since it was inlined as a plain computed property in the same body. See
-                // `JumpToLatestButton` further down for the same isolation principle already
-                // established elsewhere in this file.
+            // The chart is the base layer, edge to edge — every other control here is a floating
+            // overlay on top of it rather than a permanent row that pushes it down. That's the
+            // difference between "a chart with a toolbar above it" and "a screen that's mostly
+            // chart," which is what a trader actually wants most of their time in this tab.
+            ZStack {
+                // See the comment on this type below for why `feed.candles` (which changes on every
+                // live trade) is isolated to its own `View` instead of read directly here.
                 MarketChartSection(
                     feed: feed,
                     chartState: chartState,
@@ -124,11 +104,32 @@ struct MarketView: View {
                     selectedDrawingID: $selectedDrawingID,
                     drawingColor: drawingColor
                 )
-                .frame(maxHeight: .infinity)
+                .ignoresSafeArea(edges: .bottom)
 
-                footer
+                VStack(spacing: 0) {
+                    HStack {
+                        TimeframeStrip(timeframe: $timeframe)
+                        Spacer(minLength: 0)
+                    }
+                    // CandleKit draws its own latest-value header (a large last-price line, then a
+                    // date + OHLC + volume line) across the top of the chart itself; this clears
+                    // that whole band instead of sitting on top of it.
+                    .padding(.top, 58)
+
+                    Spacer(minLength: 0)
+
+                    FloatingToolDock(
+                        activeTool: $activeDrawingTool,
+                        drawings: $drawings,
+                        selectedDrawingID: $selectedDrawingID,
+                        drawingColor: $drawingColor,
+                        alertLevelText: $alertLevelText,
+                        activeAlertLevel: $activeAlertLevel
+                    )
+                    .padding(.bottom, 10)
+                }
             }
-            .padding()
+            .padding(.horizontal, 12)
             .navigationTitle(product.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -136,23 +137,17 @@ struct MarketView: View {
                     FeedStatusBadge(status: feed.status, source: source)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    ChartOptionsMenu(
-                        source: $source,
-                        product: $product,
-                        showsSMA: $showsSMA,
-                        showsEMA: $showsEMA,
-                        showsBollinger: $showsBollinger,
-                        showsVWAP: $showsVWAP,
-                        showsVolume: $showsVolume,
-                        showsRSI: $showsRSI,
-                        showsMACD: $showsMACD,
-                        chartState: chartState,
-                        savedLayoutCount: savedLayouts.count,
-                        onOpenLayouts: {
-                            Haptics.tap()
-                            showingLayoutsSheet = true
-                        }
-                    )
+                    Button {
+                        Haptics.tap()
+                        showingChartOptions = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 32, height: 32)
+                            .background(.thinMaterial, in: Circle())
+                    }
+                    .accessibilityLabel("Chart options")
                 }
             }
             .overlay(alignment: .top) {
@@ -185,6 +180,22 @@ struct MarketView: View {
                     pendingSaveName = defaultLayoutName()
                     showingSaveNamePrompt = true
                 }
+            )
+        }
+        .sheet(isPresented: $showingChartOptions) {
+            ChartOptionsSheet(
+                source: $source,
+                product: $product,
+                showsSMA: $showsSMA,
+                showsEMA: $showsEMA,
+                showsBollinger: $showsBollinger,
+                showsVWAP: $showsVWAP,
+                showsVolume: $showsVolume,
+                showsRSI: $showsRSI,
+                showsMACD: $showsMACD,
+                chartState: chartState,
+                savedLayoutCount: savedLayouts.count,
+                onOpenLayouts: { showingLayoutsSheet = true }
             )
         }
         .alert("Save Layout", isPresented: $showingSaveNamePrompt) {
@@ -283,16 +294,6 @@ struct MarketView: View {
         }
     }
 
-    private var footer: some View {
-        VStack(spacing: 4) {
-            Text("Drag to scroll, pinch to zoom, long-press to inspect, double-tap to reset.")
-            Text(source == .coinbase ? "Market data from the Coinbase Exchange public API." : "Simulated prices, not real market data.")
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-    }
-
     private var indicators: [ChartIndicator] {
         var result: [ChartIndicator] = []
         if showsSMA { result.append(.sma(20)) }
@@ -309,8 +310,8 @@ struct MarketView: View {
 
 /// Everything that depends on `feed.candles` — which changes on every live trade — lives here, in
 /// its own `View`. That scopes the resulting high-frequency re-renders to just this chart, instead
-/// of to the whole of `MarketView.body` (and, with it, the toolbar's menu). See the comment where
-/// this is used above for the bug this fixes.
+/// of to the whole of `MarketView.body` (and, with it, the toolbar's options button). See the
+/// comment where this is used above for the bug this fixes.
 private struct MarketChartSection: View {
     let feed: MarketFeed
     let chartState: CandleChartState
@@ -318,7 +319,7 @@ private struct MarketChartSection: View {
     let indicators: [ChartIndicator]
     let showsVolume: Bool
     let style: CandleChartStyle
-    /// The level entered in `PriceAlertRow`, or `nil` when no alert is set.
+    /// The level entered in the floating alert control, or `nil` when no alert is set.
     let alertLevel: Double?
     @Binding var attempt: Int
     @Binding var source: DataSourceKind
@@ -348,7 +349,8 @@ private struct MarketChartSection: View {
             .overlay(alignment: .top) {
                 if let firedAlert {
                     AlertFiredBanner(alert: firedAlert)
-                        .padding(.top, 8)
+                        // Clears both CandleKit's own header band and the floating timeframe strip.
+                        .padding(.top, 108)
                         .transition(.asymmetric(
                             insertion: .move(edge: .top).combined(with: .opacity),
                             removal: .opacity
@@ -413,10 +415,10 @@ private struct MarketChartSection: View {
             .defaultDrawingStyle(DrawingStyle(color: drawingColor))
             .onReachOldestCandle { feed.loadOlder() }
             .overlay(alignment: .bottomTrailing) {
-                // Clears the price and time axes.
+                // Clears the price axis and the floating tool dock pinned to the bottom of the chart.
                 JumpToLatestButton(state: chartState)
-                    .padding(.trailing, 72)
-                    .padding(.bottom, 32)
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 118)
             }
     }
 
@@ -491,18 +493,99 @@ private struct ToastView: View {
     }
 }
 
-/// A single bell control that expands in place into a price field + action, instead of a
-/// permanently-open text row competing for space with the chart above it. Collapsed, it's just an
-/// icon with a dot when an alert is armed; tapping it reveals the field with a spring, the same
-/// interaction language as the drawing color swatches expanding below the toolbar.
-private struct PriceAlertRow: View {
+/// The timeframe control, redrawn as a floating strip of pill buttons over the top of the chart
+/// instead of a permanent `.segmented` `Picker` row above it. Scrolls horizontally so adding more
+/// timeframes later doesn't force a redesign, and — like the rest of the floating chrome here —
+/// costs the chart no reserved vertical space at all.
+private struct TimeframeStrip: View {
+    @Binding var timeframe: Timeframe
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(Timeframe.allCases) { entry in
+                    pill(entry)
+                }
+            }
+            .padding(4)
+        }
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.separator.opacity(0.4)))
+        .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func pill(_ entry: Timeframe) -> some View {
+        let isSelected = entry == timeframe
+        return Button {
+            guard !isSelected else { return }
+            Haptics.selection()
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                timeframe = entry
+            }
+        } label: {
+            Text(entry.label)
+                .font(.footnote.weight(isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? .white : .primary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background {
+                    if isSelected {
+                        Capsule().fill(Color.accentColor.gradient)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isSelected)
+    }
+}
+
+/// The bottom floating dock: drawing tools on the left, the price-alert control on the right,
+/// sharing one frosted-glass surface instead of two separate rows competing for space above the
+/// chart. Together with `TimeframeStrip` above, this is the whole of what used to be four
+/// permanently-stacked rows (timeframe, drawing tools, alert row, footer) — now zero of them
+/// reserve layout space, so the chart itself gets the screen back.
+private struct FloatingToolDock: View {
+    @Binding var activeTool: DrawingTool?
+    @Binding var drawings: [Drawing]
+    @Binding var selectedDrawingID: UUID?
+    @Binding var drawingColor: DrawingColor
+    @Binding var alertLevelText: String
+    @Binding var activeAlertLevel: Double?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            DrawingToolPicker(
+                activeTool: $activeTool,
+                drawings: $drawings,
+                selectedDrawingID: $selectedDrawingID,
+                drawingColor: $drawingColor
+            )
+
+            Divider().frame(height: 26)
+
+            PriceAlertControl(levelText: $alertLevelText, activeLevel: $activeAlertLevel)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(.separator.opacity(0.4)))
+        .shadow(color: .black.opacity(0.1), radius: 10, y: 4)
+    }
+}
+
+/// A single bell control that expands in place into a compact price field + action, instead of a
+/// permanently-open text row competing for space. Collapsed, it's just an icon with a dot when an
+/// alert is armed; tapping it reveals a fixed-width field with a spring, so it slots into
+/// `FloatingToolDock` without the dock's width jumping around unpredictably.
+private struct PriceAlertControl: View {
     @Binding var levelText: String
     @Binding var activeLevel: Double?
     @FocusState private var fieldFocused: Bool
     @State private var isExpanded = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Button {
                 Haptics.tap()
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -514,7 +597,7 @@ private struct PriceAlertRow: View {
                     Image(systemName: activeLevel != nil ? "bell.fill" : "bell")
                         .font(.body.weight(.medium))
                         .foregroundStyle(activeLevel != nil ? .orange : .secondary)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 34, height: 34)
                         .background(.thinMaterial, in: Circle())
                     if activeLevel != nil {
                         Circle()
@@ -525,13 +608,15 @@ private struct PriceAlertRow: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(activeLevel != nil ? "Price alert armed" : "Set a price alert")
 
             if isExpanded || activeLevel != nil {
-                TextField("Alert price", text: $levelText)
+                TextField("Price", text: $levelText)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.roundedBorder)
+                    .frame(width: 84)
                     .focused($fieldFocused)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
 
                 if activeLevel != nil {
                     Button {
@@ -542,10 +627,12 @@ private struct PriceAlertRow: View {
                             isExpanded = false
                         }
                     } label: {
-                        Text("Clear")
+                        Image(systemName: "xmark")
+                            .font(.footnote.weight(.semibold))
+                            .frame(width: 30, height: 30)
+                            .background(.thinMaterial, in: Circle())
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(.plain)
                     .transition(.opacity)
                 } else {
                     Button {
@@ -553,19 +640,16 @@ private struct PriceAlertRow: View {
                         activeLevel = Double(levelText)
                         fieldFocused = false
                     } label: {
-                        Text("Set")
+                        Image(systemName: "checkmark")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 30, height: 30)
+                            .background(Double(levelText) == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor.gradient), in: Circle())
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    .buttonStyle(.plain)
                     .disabled(Double(levelText) == nil)
                     .transition(.opacity)
                 }
-            } else {
-                Text("Set a price alert")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .transition(.opacity)
-                Spacer(minLength: 0)
             }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isExpanded)
@@ -579,8 +663,8 @@ private struct PriceAlertRow: View {
 /// eight short labels, and it lets the whole strip stay one comfortable row of 36pt targets instead
 /// of variable-width text pills. The color row only appears while it's relevant (a tool is active,
 /// or something's selected), so cursor mode — the common case — doesn't pay for it in vertical space.
-/// Its own content never reads `feed`, so — like `ChartOptionsMenu` — it doesn't retrigger on a live
-/// trade.
+/// Its own content never reads `feed`, so — like `ChartOptionsSheet` — it doesn't retrigger on a
+/// live trade.
 private struct DrawingToolPicker: View {
     @Binding var activeTool: DrawingTool?
     @Binding var drawings: [Drawing]
@@ -616,7 +700,7 @@ private struct DrawingToolPicker: View {
     private var showsColorRow: Bool { activeTool != nil || selectedDrawingID != nil }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     cursorButton
@@ -639,9 +723,10 @@ private struct DrawingToolPicker: View {
                         }
                     }
                 }
-                .padding(.horizontal, 2)
                 .padding(.vertical, 2)
             }
+            .frame(width: 210, alignment: .leading)
+            .clipped()
 
             // Sets the color the *next* drawing starts as; when something is already selected, it
             // also recolors that drawing immediately, so the same row does the obvious thing whether
@@ -653,10 +738,11 @@ private struct DrawingToolPicker: View {
                             swatchButton(Self.palette[index])
                         }
                     }
-                    .padding(.horizontal, 2)
                     .padding(.vertical, 2)
                 }
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .frame(width: 210, alignment: .leading)
+                .clipped()
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: showsColorRow)
@@ -680,7 +766,7 @@ private struct DrawingToolPicker: View {
         .accessibilityLabel(entry.label)
     }
 
-    /// One consistent 36pt tappable circle for every tool/action in this strip — filled and tinted
+    /// One consistent 34pt tappable circle for every tool/action in this strip — filled and tinted
     /// when it's the active selection, a light material button otherwise, with a small spring "pop"
     /// on selection so picking a tool has the same tactile snap as the color swatches below it.
     private func iconButton(
@@ -692,10 +778,10 @@ private struct DrawingToolPicker: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .rotationEffect(rotation)
                 .foregroundStyle(filled ? .white : tint)
-                .frame(width: 34, height: 34)
+                .frame(width: 32, height: 32)
                 .background {
                     if filled {
                         Circle().fill(tint.gradient)
@@ -720,7 +806,7 @@ private struct DrawingToolPicker: View {
         } label: {
             Circle()
                 .fill(Color(color))
-                .frame(width: 24, height: 24)
+                .frame(width: 22, height: 22)
                 .overlay(Circle().strokeBorder(.white, lineWidth: isSelected ? 2.5 : 0))
                 .overlay(Circle().stroke(.black.opacity(0.15), lineWidth: 0.5))
                 .scaleEffect(isSelected ? 1.15 : 1.0)
@@ -731,13 +817,12 @@ private struct DrawingToolPicker: View {
     }
 }
 
-/// The toolbar's "Chart options" menu, as its own `View` rather than a computed property inlined
-/// into `MarketView.body`. Its own content never reads `feed`, so on its own this wasn't the source
-/// of the "menu keeps refreshing" bug — `MarketView.body` re-evaluating on every trade tick was —
-/// but keeping it as a dedicated view (bindings only, no observed model) is what lets SwiftUI treat
-/// it as unchanged, and its open `Menu` popover undisturbed, whenever an ancestor's body does still
-/// re-run for an unrelated reason.
-private struct ChartOptionsMenu: View {
+/// The chart-options surface, redesigned as a modern grouped sheet — icon tiles you tap to toggle,
+/// cards for the compound rows — instead of the plain system `Menu` dropdown this replaces. A `Menu`
+/// reads as a list of text rows no matter how it's labeled; this reads the way a modern settings
+/// surface does, with room to breathe and glanceable icons, and it doesn't disappear the instant a
+/// finger slips off a row.
+private struct ChartOptionsSheet: View {
     @Binding var source: DataSourceKind
     @Binding var product: Product
     @Binding var showsSMA: Bool
@@ -751,54 +836,192 @@ private struct ChartOptionsMenu: View {
     let savedLayoutCount: Int
     let onOpenLayouts: () -> Void
 
+    @Environment(\.dismiss) private var dismiss
+
+    private struct Chip: Identifiable {
+        let id: String
+        let title: String
+        let systemImage: String
+        let binding: Binding<Bool>
+    }
+
     var body: some View {
-        Menu {
-            Section("Layouts") {
-                if savedLayoutCount == 0 {
-                    Button("Browse…", systemImage: "square.stack.3d.up", action: onOpenLayouts)
-                } else {
-                    Button("Browse… (\(savedLayoutCount) saved)", systemImage: "square.stack.3d.up", action: onOpenLayouts)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    layoutsCard
+                    marketCard
+
+                    sectionLabel("Overlays")
+                    chipGrid(overlayChips)
+
+                    sectionLabel("Panes")
+                    chipGrid(paneChips)
+
+                    resetZoomButton
+                }
+                .padding()
+            }
+            .navigationTitle("Chart Options")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
                 }
             }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
 
-            Section("Market") {
-                Picker(selection: $source) {
+    private var overlayChips: [Chip] {
+        [
+            Chip(id: "sma", title: "SMA 20", systemImage: "chart.line.uptrend.xyaxis", binding: $showsSMA),
+            Chip(id: "ema", title: "EMA 50", systemImage: "chart.line.uptrend.xyaxis", binding: $showsEMA),
+            Chip(id: "bollinger", title: "Bollinger", systemImage: "water.waves", binding: $showsBollinger),
+            Chip(id: "vwap", title: "VWAP", systemImage: "chart.xyaxis.line", binding: $showsVWAP),
+            Chip(id: "volume", title: "Volume", systemImage: "chart.bar.fill", binding: $showsVolume),
+        ]
+    }
+
+    private var paneChips: [Chip] {
+        [
+            Chip(id: "rsi", title: "RSI 14", systemImage: "gauge.with.dots.needle.50percent", binding: $showsRSI),
+            Chip(id: "macd", title: "MACD", systemImage: "waveform", binding: $showsMACD),
+        ]
+    }
+
+    private func sectionLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+    }
+
+    private var layoutsCard: some View {
+        Button {
+            dismiss()
+            // Chains into the Layouts sheet once this one has finished dismissing — presenting both
+            // at once races the two `.sheet` transitions against each other.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                onOpenLayouts()
+            }
+        } label: {
+            HStack(spacing: 12) {
+                iconBadge("square.stack.3d.up", tint: .indigo)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Layouts")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(savedLayoutCount == 0 ? "No saved layouts yet" : "\(savedLayoutCount) saved")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var marketCard: some View {
+        VStack(spacing: 0) {
+            marketRow(icon: "antenna.radiowaves.left.and.right", tint: .blue) {
+                Picker("Data", selection: $source) {
                     ForEach(DataSourceKind.allCases) { kind in
                         Text(kind.rawValue).tag(kind)
                     }
-                } label: {
-                    Label("Data", systemImage: "antenna.radiowaves.left.and.right")
                 }
-                Picker(selection: $product) {
+                .pickerStyle(.menu)
+                .tint(.primary)
+            }
+            Divider().padding(.leading, 50)
+            marketRow(icon: "bitcoinsign.circle", tint: .orange) {
+                Picker("Symbol", selection: $product) {
                     ForEach(Product.all) { product in
                         Text("\(product.name) (\(product.id))").tag(product)
                     }
-                } label: {
-                    Label("Symbol", systemImage: "bitcoinsign.circle")
                 }
+                .pickerStyle(.menu)
+                .tint(.primary)
             }
-
-            Section("Overlays") {
-                Toggle(isOn: $showsSMA) { Label("SMA 20", systemImage: "chart.line.uptrend.xyaxis") }
-                Toggle(isOn: $showsEMA) { Label("EMA 50", systemImage: "chart.line.uptrend.xyaxis") }
-                Toggle(isOn: $showsBollinger) { Label("Bollinger Bands", systemImage: "water.waves") }
-                Toggle(isOn: $showsVWAP) { Label("VWAP", systemImage: "chart.xyaxis.line") }
-                Toggle(isOn: $showsVolume) { Label("Volume", systemImage: "chart.bar.fill") }
-            }
-            Section("Panes") {
-                Toggle(isOn: $showsRSI) { Label("RSI 14", systemImage: "gauge.with.dots.needle.50percent") }
-                Toggle(isOn: $showsMACD) { Label("MACD", systemImage: "waveform") }
-            }
-            Button {
-                // Same spring as double-tap-to-reset on the chart itself, so the menu action and
-                // the gesture that does the same thing feel the same.
-                chartState.animatedResetZoom()
-            } label: {
-                Label("Reset zoom", systemImage: "arrow.counterclockwise")
-            }
-        } label: {
-            Label("Chart options", systemImage: "slider.horizontal.3")
         }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func marketRow<Content: View>(icon: String, tint: Color, @ViewBuilder content: () -> Content) -> some View {
+        HStack {
+            iconBadge(icon, tint: tint)
+            content()
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func iconBadge(_ systemImage: String, tint: Color) -> some View {
+        Image(systemName: systemImage)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(width: 28, height: 28)
+            .background(tint.gradient, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func chipGrid(_ chips: [Chip]) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 10)], spacing: 10) {
+            ForEach(chips) { chip in
+                chipButton(chip)
+            }
+        }
+    }
+
+    private func chipButton(_ chip: Chip) -> some View {
+        let isOn = chip.binding.wrappedValue
+        return Button {
+            Haptics.selection()
+            chip.binding.wrappedValue.toggle()
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: chip.systemImage)
+                    .font(.title3)
+                Text(chip.title)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .foregroundStyle(isOn ? .white : .primary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(isOn ? AnyShapeStyle(Color.accentColor.gradient) : AnyShapeStyle(.thinMaterial))
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(.separator.opacity(isOn ? 0 : 0.5))
+            )
+        }
+        .buttonStyle(.plain)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isOn)
+    }
+
+    private var resetZoomButton: some View {
+        Button {
+            Haptics.tap()
+            // Same spring as double-tap-to-reset on the chart itself, so the sheet action and the
+            // gesture that does the same thing feel the same.
+            chartState.animatedResetZoom()
+            dismiss()
+        } label: {
+            Label("Reset Zoom", systemImage: "arrow.counterclockwise")
+                .font(.subheadline.weight(.medium))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+        }
+        .buttonStyle(.bordered)
     }
 }
 
