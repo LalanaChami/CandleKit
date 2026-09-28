@@ -68,13 +68,13 @@ struct Tier2IndicatorMathTests {
 
     @Test func keltnerChannels() {
         let bands = IndicatorMath.keltnerChannels(highs: highs, lows: lows, closes: closes, period: 20, atrPeriod: 10, multiplier: 2)
-        expectSeries(bands.upper, [nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 49.205810638, 49.414777193, 49.537175891, 49.666965537, 49.870108862, 50.112000723, 50.234569804, 50.374046818, 50.585963370, 50.826276721, 50.947424481], "Keltner upper", tolerance: 1e-5)
-        expectSeries(bands.lower, [nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 43.604189362, 43.813318045, 43.935862658, 44.065783627, 44.269045143, 44.471043376, 44.597708191, 44.740871367, 44.956105464, 45.159404606, 45.287239577], "Keltner lower", tolerance: 1e-5)
+        expectSeries(bands.upper, [nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 49.205810638, 49.414777193, 49.537175891, 49.666965537, 49.870108862, 50.112000723, 50.234569804, 50.374046818, 50.585963370, 50.826276721, 50.947424481], tolerance: 1e-5, "Keltner upper")
+        expectSeries(bands.lower, [nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 43.604189362, 43.813318045, 43.935862658, 44.065783627, 44.269045143, 44.471043376, 44.597708191, 44.740871367, 44.956105464, 45.159404606, 45.287239577], tolerance: 1e-5, "Keltner lower")
     }
 
     @Test func superTrend() {
         let result = IndicatorMath.superTrend(highs: highs, lows: lows, closes: closes, period: 10, multiplier: 3)
-        expectSeries(result.uptrend, [nil, nil, nil, nil, nil, nil, nil, nil, nil, 41.99, 41.99, 42.5429, 43.23861, 43.23861, 43.23861, 43.84814669, 43.84814669, 43.84814669, 43.84814669, 44.198784043, 44.698905639, 44.698905639, 44.698905639, 44.698905639, 45.21928199, 45.21928199, 45.21928199, 45.21928199, 45.899845913, 45.899845913], "SuperTrend up", tolerance: 1e-5)
+        expectSeries(result.uptrend, [nil, nil, nil, nil, nil, nil, nil, nil, nil, 41.99, 41.99, 42.5429, 43.23861, 43.23861, 43.23861, 43.84814669, 43.84814669, 43.84814669, 43.84814669, 44.198784043, 44.698905639, 44.698905639, 44.698905639, 44.698905639, 45.21928199, 45.21928199, 45.21928199, 45.21928199, 45.899845913, 45.899845913], tolerance: 1e-5, "SuperTrend up")
         // The fixture data trends up throughout, so `downtrend` never fires here — this test still
         // confirms the uptrend arithmetic; the flip branch is exercised by parabolicSAR's test below,
         // which does cross both ways on this same data.
@@ -83,8 +83,8 @@ struct Tier2IndicatorMathTests {
 
     @Test func parabolicSAR() {
         let result = IndicatorMath.parabolicSAR(highs: highs, lows: lows)
-        expectSeries(result.bullish, [44.1, 44.1, 44.1, 44.172, 44.3, nil, nil, 43.9, 43.96, 44.0896, 44.214016, 44.33345536, 44.517448038, 44.804052195, 45.06772802, 45.310309778, 45.6592788, 45.97335092, 46.1, 46.1, 46.46, 46.8996, nil, nil, 47.0, 47.064, 47.12672, 47.1881856, 47.248421888, 47.394485012], "PSAR bullish", tolerance: 1e-5)
-        expectSeries(result.bearish, [nil, nil, nil, nil, nil, 46.4, 46.35, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 49.6, 49.548, nil, nil, nil, nil, nil, nil], "PSAR bearish", tolerance: 1e-5)
+        expectSeries(result.bullish, [44.1, 44.1, 44.1, 44.172, 44.3, nil, nil, 43.9, 43.96, 44.0896, 44.214016, 44.33345536, 44.517448038, 44.804052195, 45.06772802, 45.310309778, 45.6592788, 45.97335092, 46.1, 46.1, 46.46, 46.8996, nil, nil, 47.0, 47.064, 47.12672, 47.1881856, 47.248421888, 47.394485012], tolerance: 1e-5, "PSAR bullish")
+        expectSeries(result.bearish, [nil, nil, nil, nil, nil, 46.4, 46.35, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 49.6, 49.548, nil, nil, nil, nil, nil, nil], tolerance: 1e-5, "PSAR bearish")
         expectBools(result.isBullish, [true, true, true, true, true, false, false, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false, false, true, true, true, true, true, true], "PSAR direction")
     }
 
@@ -100,9 +100,9 @@ struct Tier2IndicatorMathTests {
 
     @Test func adx() {
         let result = IndicatorMath.adx(highs: highs, lows: lows, closes: closes, period: 7)
-        expectSeries(result.plusDI, [nil, nil, nil, nil, nil, nil, 20.833333333, 29.228486647, 28.391369366, 24.245925566, 20.716889955, 29.842522425, 32.736210377, 28.040067004, 27.092186739, 32.093354453, 27.53650412, 23.623265177, 25.342814776, 32.917681059, 33.315879334, 28.569919064, 24.498393117, 30.170485262, 34.6821376, 29.777942967, 25.561093821, 31.051728952, 35.40991237, 30.422637522], "ADX +DI", tolerance: 1e-5)
-        expectSeries(result.minusDI, [nil, nil, nil, nil, nil, nil, 15.625, 13.353115727, 11.535996582, 15.066285575, 19.111292013, 16.169431729, 13.84824399, 16.985017177, 14.549900584, 12.338678208, 14.643523406, 20.683144379, 17.741648041, 15.216866689, 13.050192875, 17.29629423, 20.938994729, 17.953925515, 15.238431457, 17.123771214, 20.767869343, 17.823262226, 15.139957038, 17.031699651], "ADX -DI", tolerance: 1e-5)
-        expectSeries(result.adx, [nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 27.3467116, 26.947622922, 27.400713112, 29.837816639, 29.941921916, 26.612487559, 25.331057576, 26.965708963, 29.35746594, 28.674880358, 25.697559363, 25.652960886, 27.552436168, 27.470686762, 25.024312174, 25.315970643, 27.42782158, 27.540786397], "ADX", tolerance: 1e-5)
+        expectSeries(result.plusDI, [nil, nil, nil, nil, nil, nil, 20.833333333, 29.228486647, 28.391369366, 24.245925566, 20.716889955, 29.842522425, 32.736210377, 28.040067004, 27.092186739, 32.093354453, 27.53650412, 23.623265177, 25.342814776, 32.917681059, 33.315879334, 28.569919064, 24.498393117, 30.170485262, 34.6821376, 29.777942967, 25.561093821, 31.051728952, 35.40991237, 30.422637522], tolerance: 1e-5, "ADX +DI")
+        expectSeries(result.minusDI, [nil, nil, nil, nil, nil, nil, 15.625, 13.353115727, 11.535996582, 15.066285575, 19.111292013, 16.169431729, 13.84824399, 16.985017177, 14.549900584, 12.338678208, 14.643523406, 20.683144379, 17.741648041, 15.216866689, 13.050192875, 17.29629423, 20.938994729, 17.953925515, 15.238431457, 17.123771214, 20.767869343, 17.823262226, 15.139957038, 17.031699651], tolerance: 1e-5, "ADX -DI")
+        expectSeries(result.adx, [nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 27.3467116, 26.947622922, 27.400713112, 29.837816639, 29.941921916, 26.612487559, 25.331057576, 26.965708963, 29.35746594, 28.674880358, 25.697559363, 25.652960886, 27.552436168, 27.470686762, 25.024312174, 25.315970643, 27.42782158, 27.540786397], tolerance: 1e-5, "ADX")
     }
 
     @Test func commodityChannelIndex() {

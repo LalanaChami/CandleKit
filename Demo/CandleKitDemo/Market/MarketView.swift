@@ -7,6 +7,7 @@ import UIKit
 /// (saving, deleting), and the two system notification feels for "this succeeded" / "this fired."
 /// Real trading apps lean on this kind of consistent tactile feedback heavily — it's what makes a
 /// dense, information-first screen still feel responsive rather than just busy.
+@MainActor
 private enum Haptics {
     static func selection() {
         UISelectionFeedbackGenerator().selectionChanged()
