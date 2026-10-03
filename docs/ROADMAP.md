@@ -55,10 +55,18 @@ of weekends. Two things follow from that, and both are baked into how those phas
   3. `demo`: `brew install xcodegen`, `xcodegen generate`, `xcodebuild CandleKitDemo` on `macos-15`.
   Triggers on push to `main` and on pull requests. `.github/` is untracked (`??`) — not gitignored. *Verify: a green run on GitHub after the first push.*
 - [ ] **0.5 Simulator smoke test.** Claude writes `docs/QA.md` (the checklist in 1.1). The maintainer launches the demo and confirms all four tabs render and the chart responds to touch. Watch Xcode's console for purple runtime warnings: "Modifying state during view update", "Publishing changes from within view updates", main-thread checker hits. Paste any into an issue. *Verify: Device.*
-- [ ] **0.6 Repository hygiene** (parallel-safe).
+- [x] **0.6 Repository hygiene** (parallel-safe).
   - Add `CHANGELOG.md` in Keep a Changelog format.
   - Update `CONTRIBUTING.md` with the real build commands, including the iOS `xcodebuild` step and the demo workflow.
   - Decide on formatting: `swift format` ships with the Swift 6 toolchain. If adopted, add a config and a CI lint step in a separate PR.
+
+  `CHANGELOG.md` already existed in Keep a Changelog format (see the file for the full history).
+  `CONTRIBUTING.md` now has a "Building and testing" section with the actual `swift build`/`swift
+  test`/`xcodebuild` commands (Core, the iOS layer, and the demo's `xcodegen generate` step), plus a
+  "Formatting" section recording the decision: adopt `swift-format` (ships with the Swift 6
+  toolchain, no extra install for contributors already on Xcode 16+), but the config and CI lint
+  step are deferred to a separate PR so a mechanical reformat doesn't land bundled with unrelated
+  changes.
 
   *Verify: CLI.*
 - [x] **0.7 Scroll and haptic UX polish** (parallel-safe).

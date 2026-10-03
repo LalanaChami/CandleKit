@@ -6,6 +6,17 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Docs — Repository hygiene: real build commands in CONTRIBUTING.md, formatting decision
+
+`CONTRIBUTING.md` had generic, Xcode-GUI-only build instructions. It now has a "Building and
+testing" section with the actual commands: `swift build`/`swift test` for `CandleKitCore`, the
+`xcodebuild -scheme CandleKit` invocation that's the only way to compile the SwiftUI layer (plain
+`swift build` doesn't, since everything under `Sources/CandleKit/` is `#if os(iOS)`), and the demo
+app's `xcodegen generate` → `xcodebuild` workflow. Also added a "Formatting" section: the project
+will use `swift-format` (ships with the Swift 6 toolchain), but a checked-in config and CI lint
+step are deferred to a separate PR rather than bundled with this change. No code changes; `main`
+already had `CHANGELOG.md` in Keep a Changelog format, so that part of the task was already done.
+
 ### Changed — Demo app: Market screen redesign (named layouts, modern options sheet, floating controls)
 
 Direct feedback across a few rounds: the Market screen's chrome had grown busy (a segmented
