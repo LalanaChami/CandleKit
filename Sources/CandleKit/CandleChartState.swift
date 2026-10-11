@@ -76,9 +76,17 @@ public final class CandleChartState {
     @ObservationIgnored private(set) var cachedInterval: TimeInterval = 60
     // Frozen while the user is scrolling so horizontal panning doesn't shift all candle Y-positions.
     @ObservationIgnored private var cachedPriceRange: ClosedRange<Double>? = nil
-    /// True while the user is panning or momentum/spring-back is running. `makeFrame` skips
-    /// recomputing the price scale in this state to keep candle heights visually stable.
-    @ObservationIgnored var isScrolling = false
+    /// `true` while a pan, fling or spring-back is moving the viewport. While set, `makeFrame` reuses
+    /// the cached price range (and comparison scaling) so the scale doesn't shift under the finger.
+    /// When it clears, `revision` is bumped once so one more frame is built against the settled
+    /// viewport and every reader of `currentFrame` (the price-tag badge, the comparison legend) sees
+    /// it, instead of waiting for the next unrelated redraw.
+    @ObservationIgnored private var frameWasBuiltWhileScrolling = false
+    @ObservationIgnored var isScrolling = false {
+        didSet {
+            if oldValue && !isScrolling { revision &+= 1 }
+        }
+    }
 
     // MARK: Rubber-band and spring-animation state (not observed)
 
@@ -791,6 +799,18 @@ public final class CandleChartState {
         }
 
         currentFrame = frame
+
+        // The first frame built after scrolling stops has a new price range and comparison base.
+        // Views that read `currentFrame` (the price-tag badge, the comparison legend) may have been
+        // evaluated earlier in the same update, before this frame existed, so they would keep
+        // showing the pre-settle values until the next unrelated redraw. A deferred `revision`
+        // bump makes them re-read; the frame it triggers is identical, so nothing loops. Deferred
+        // because `revision` is observed and must not be written during a view update.
+        let justSettled = frameWasBuiltWhileScrolling && !isScrolling
+        frameWasBuiltWhileScrolling = isScrolling
+        if justSettled {
+            Task { @MainActor [weak self] in self?.revision &+= 1 }
+        }
         return frame
     }
 

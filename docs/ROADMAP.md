@@ -517,7 +517,7 @@ developers.
       not run because the authoring session had no Swift toolchain (expected values checked with an
       independent Python script). Design in `docs/design/comparison.md`: a mode of `CandlestickChart`
       (`.comparing(_:normalization:)`, `ComparisonSeries`), percent-change and indexed-to-100 axes,
-      timestamp alignment with explicit gaps, and a legend under the header. Not done: a real
+      timestamp alignment with explicit gaps, and a legend in the chart's top-left corner. Not done: a real
       secondary axis, per-series line styles, comparison in `ChartLayout`, percent-aware header and
       drawings. *Verify: `swift test`; Device — lines and percent axis while panning, zooming,
       prepending history and with the crosshair; ALT-style late-start series; light and dark;

@@ -76,9 +76,6 @@ public struct CandlestickChart: View {
             if showsHeader && !candles.isEmpty {
                 ChartHeader(state: state, candles: candles, fractionDigits: headerDigits, style: style)
             }
-            if !comparisonSeries.isEmpty && !candles.isEmpty {
-                ComparisonLegend(state: state, style: style)
-            }
 
             GeometryReader { proxy in
                 let metrics = ChartMetrics(
@@ -115,6 +112,9 @@ public struct CandlestickChart: View {
                         comparisonNormalization: comparisonNormalization
                     )
                     PriceAxisGlassPanel(state: state, style: style)
+                    if !comparisonSeries.isEmpty && !candles.isEmpty {
+                        ComparisonLegend(state: state, style: style)
+                    }
                     CrosshairLayer(state: state, style: style)
                     LastPriceBadge(state: state, candles: candles, style: style)
                     if drawingsBinding != nil {

@@ -41,5 +41,5 @@ extent over the same ±15-candle window.
 - Comparison in `ChartLayout` (saved layouts).
 - The header, accessibility summary and drawings still show the primary's own prices; drawings stay
   in primary-price space, which is the geometry space, so they keep working.
-- Comparison series are not shown in the crosshair tag itself; the legend under the header follows
+- Comparison series are not shown in the crosshair tag itself; the legend in the chart's corner follows
   the crosshair instead.

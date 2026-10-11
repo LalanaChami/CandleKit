@@ -19,12 +19,23 @@ drawings and the header; a frosted axis is drawn plain. The Demo's Market screen
 Written without a compiler or a device: the iOS build and the checks listed under 8.5 in
 `docs/ROADMAP.md` still need to be run.
 
+### Fixed — Found by running the Demo in the iOS Simulator (first compile and run of 8.5, 9.1, 7.6)
+
+- Comparison: the 0% axis tick read "-0.0%" (`niceTicks` produces -0.0); labels are now rounded to the
+  digits shown first.
+- Comparison: the legend sat above the chart and so read `currentFrame` before `makeFrame` had run
+  for that update; it now sits inside the chart after `ChartContentLayer`, in the top-left corner.
+- `CandleChartState.isScrolling` now bumps `revision` when it clears, so the frame rebuilt against the
+  settled viewport (new price range, new comparison base) is built promptly, and the first settled
+  frame schedules one more deferred bump so views that read `currentFrame` earlier in the same update
+  (the price-tag badge, the legend) re-read it. Affects every chart, not only comparison.
+
 ### Added — Multi-symbol comparison (roadmap 7.6)
 
 `.comparing(_:normalization:)` plots other instruments over the chart. `ComparisonSeries` carries a
 name, candles, optional color and line width. The price axis becomes percent change from the first
 visible candle (or an index starting at 100), the crosshair and last-price tags follow, and a legend
-under the header shows each line's value. `CandleKitCore` gains `SeriesAlignment.align` (timestamp
+in the chart's top-left corner shows each line's value. `CandleKitCore` gains `SeriesAlignment.align` (timestamp
 alignment with explicit gaps), `ComparisonMath` and `ComparisonScaling`; `PriceScale.autoRange` gains
 an `extent:` parameter and `PriceTicks` a public initializer. Each comparison line is its closes
 times one constant, so the candle renderer is unchanged. Design in `docs/design/comparison.md`.

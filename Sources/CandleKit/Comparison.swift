@@ -63,6 +63,13 @@ struct ComparisonFrame {
 enum ComparisonFormat {
     /// An axis number as text: `+2.50%` for percent change, `102.50` for an index.
     static func string(_ value: Double, normalization: ComparisonNormalization, digits: Int) -> String {
+        // Round to what will be shown first, so a value that displays as zero is exactly +0 and
+        // never prints as "-0.0%" (`niceTicks` yields -0.0 for the zero tick, and tiny negatives
+        // round to it).
+        let places = max(0, digits)
+        let scale = pow(10.0, Double(places))
+        var value = (value * scale).rounded() / scale
+        if value == 0 { value = 0 }
         switch normalization {
         case .percentChange:
             return value.formatted(.number.precision(.fractionLength(max(0, digits))).sign(strategy: .always())) + "%"
@@ -87,9 +94,11 @@ extension ChartFrame {
     }
 }
 
-/// The names, colors and current values of the comparison lines, shown under the header.
+/// The names, colors and current values of the comparison lines, drawn in the chart's top-left corner.
 ///
-/// Reads `revision` (like `LastPriceBadge`) so the values follow the crosshair and the live edge.
+/// Reads `revision` (like `LastPriceBadge`) so the values follow the crosshair and the live edge. It
+/// must sit after `ChartContentLayer` in the chart's ZStack: `makeFrame` runs inside that layer's
+/// body, and a view that reads `currentFrame` earlier in the same update sees the previous frame.
 struct ComparisonLegend: View {
     let state: CandleChartState
     let style: CandleChartStyle
@@ -107,9 +116,14 @@ struct ComparisonLegend: View {
                             .monospacedDigit()
                     }
                 }
-                Spacer(minLength: 0)
             }
             .font(.caption2)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(.ultraThinMaterial, in: Capsule())
+            .padding(.leading, 6)
+            .padding(.top, 4)
+            .allowsHitTesting(false)
             .accessibilityElement(children: .combine)
         }
     }
