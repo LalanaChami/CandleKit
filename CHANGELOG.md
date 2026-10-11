@@ -19,6 +19,17 @@ drawings and the header; a frosted axis is drawn plain. The Demo's Market screen
 Written without a compiler or a device: the iOS build and the checks listed under 8.5 in
 `docs/ROADMAP.md` still need to be run.
 
+### Added — Extended-hours / session shading (roadmap 9.1)
+
+`.tradingSessions(_:shading:)` tints the plot behind pre-market, after-hours and overnight candles.
+`TradingSession` (kind, start/end minute, weekdays, time zone; `TradingSession.usEquities` as a
+preset) and `SessionClassifier` live in `CandleKitCore` and use integer epoch math with a cached
+UTC offset that is re-read only when a daylight-saving transition passes. Regions are computed once
+per data change and cached on `CandleChartState`; the renderer binary-searches them per frame.
+`SessionShadingStyle` sets the colors. Sessions apply to intervals of one hour or shorter. The
+Demo's Styles tab gets a "Session shading" card. Written without a compiler or a device: the Core
+tests and the iOS build still need to be run (see 9.1 in `docs/ROADMAP.md`).
+
 ### Docs — Repository hygiene: real build commands in CONTRIBUTING.md, formatting decision
 
 `CONTRIBUTING.md` had generic, Xcode-GUI-only build instructions. It now has a "Building and

@@ -25,6 +25,8 @@ public struct CandlestickChart: View {
     private var indicators: [ChartIndicator] = []
     private var showsVolume = true
     private var showsHeader = true
+    private var sessions: [TradingSession] = []
+    private var sessionShading = SessionShadingStyle()
     private var fractionDigits: Int?
     private var crosshairHandler: ((Candle?) -> Void)?
     private var oldestCandleHandler: (() -> Void)?
@@ -101,7 +103,9 @@ public struct CandlestickChart: View {
                         metrics: metrics,
                         showsVolume: showsVolume,
                         fractionDigits: fractionDigits,
-                        style: style
+                        style: style,
+                        sessions: sessions,
+                        sessionShading: sessionShading
                     )
                     PriceAxisGlassPanel(state: state, style: style)
                     CrosshairLayer(state: state, style: style)
@@ -153,6 +157,8 @@ private struct ChartContentLayer: View {
     let showsVolume: Bool
     let fractionDigits: Int?
     let style: CandleChartStyle
+    let sessions: [TradingSession]
+    let sessionShading: SessionShadingStyle
 
     var body: some View {
         let _ = state.revision
@@ -169,7 +175,9 @@ private struct ChartContentLayer: View {
             size: size,
             metrics: metrics,
             showsVolume: showsVolume,
-            fractionDigits: fractionDigits
+            fractionDigits: fractionDigits,
+            sessions: sessions,
+            sessionShading: sessionShading
         )
         ChartBaseLayer(frame: frame, style: style, appearPhase: state.appearPhase, focusedCandleIndex: focusedCandleIndex)
     }
@@ -439,6 +447,28 @@ extension CandlestickChart {
     public func indicators(_ indicators: [ChartIndicator]) -> CandlestickChart {
         var copy = self
         copy.indicators = indicators
+        return copy
+    }
+
+    /// Tints the plot behind pre-market, after-hours and overnight candles, so extended-hours
+    /// trading reads differently from the regular session. Describe the sessions your market has;
+    /// ``TradingSession/usEquities`` covers the common US case.
+    ///
+    /// ```swift
+    /// CandlestickChart(candles)
+    ///     .tradingSessions(TradingSession.usEquities)
+    /// ```
+    ///
+    /// Candles are matched by the time they open, in each session's own time zone, so this suits
+    /// intraday series up to one hour per candle; longer intervals are left unshaded. Regular
+    /// sessions are never tinted. Pass `shading` to change the colors.
+    public func tradingSessions(
+        _ sessions: [TradingSession],
+        shading: SessionShadingStyle = SessionShadingStyle()
+    ) -> CandlestickChart {
+        var copy = self
+        copy.sessions = sessions
+        copy.sessionShading = shading
         return copy
     }
 

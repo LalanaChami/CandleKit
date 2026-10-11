@@ -109,6 +109,11 @@ public final class CandleChartState {
     /// `buildFrame`, like the other `@ObservationIgnored` bookkeeping in this file.
     @ObservationIgnored private(set) var currentStyle: CandleChartStyle?
 
+    // Session regions (roadmap 9.1) depend only on the data and the app's sessions, so they're
+    // rebuilt when either changes, not per frame. See `buildFrame`.
+    @ObservationIgnored private var cachedSessions: [TradingSession] = []
+    @ObservationIgnored private var cachedSessionRegions: [SessionRegion] = []
+
     // Axis label strings are cached against the ticks that produced them. Number and date
     // formatting is expensive enough to matter when it runs for every label on every frame, and
     // while panning the tick values usually don't change at all from one frame to the next.
@@ -431,7 +436,9 @@ public final class CandleChartState {
         size: CGSize,
         metrics: ChartMetrics,
         showsVolume: Bool,
-        fractionDigits: Int?
+        fractionDigits: Int?,
+        sessions: [TradingSession],
+        sessionShading: SessionShadingStyle
     ) -> ChartFrame {
         ChartPerformance.measure(.makeFrame) {
             buildFrame(
@@ -441,7 +448,9 @@ public final class CandleChartState {
                 size: size,
                 metrics: metrics,
                 showsVolume: showsVolume,
-                fractionDigits: fractionDigits
+                fractionDigits: fractionDigits,
+                sessions: sessions,
+                sessionShading: sessionShading
             )
         }
     }
@@ -453,7 +462,9 @@ public final class CandleChartState {
         size: CGSize,
         metrics: ChartMetrics,
         showsVolume: Bool,
-        fractionDigits: Int?
+        fractionDigits: Int?,
+        sessions: [TradingSession],
+        sessionShading: SessionShadingStyle
     ) -> ChartFrame {
         currentStyle = style
         // Panes have to be decided before the layout, because they determine how much vertical
@@ -512,6 +523,15 @@ public final class CandleChartState {
 
         if change != .unchanged {
             cachedInterval = TimeScale.estimatedInterval(of: newCandles)
+        }
+        // Session regions are rebuilt only when the data or the sessions changed — not on a live
+        // tick that updates the last candle in place (`.unchanged`), and never per scroll frame.
+        // O(candles), the same cost class as the indicator cache on a data change.
+        if sessions != cachedSessions || change != .unchanged {
+            cachedSessionRegions = ChartPerformance.measure(.sessions) {
+                SessionClassifier.regions(for: newCandles, sessions: sessions)
+            }
+            cachedSessions = sessions
         }
         // Skip the clamp while the user is in rubber-band overscroll or a spring-back is running,
         // so the intentional out-of-bounds position is rendered rather than immediately corrected.
@@ -662,7 +682,9 @@ public final class CandleChartState {
             panes: resolvedPanes,
             priceTickLabels: labels.priceLabels,
             timeTickLabels: labels.timeLabels,
-            lastPriceLabel: labels.lastPrice
+            lastPriceLabel: labels.lastPrice,
+            sessionRegions: cachedSessionRegions,
+            sessionShading: sessionShading
         )
 
         // Store this frame so subsequent animation ticks can return immediately without recomputing.

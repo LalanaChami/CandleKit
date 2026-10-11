@@ -46,6 +46,8 @@ struct BaseLayerRenderer {
     }
 
     private func drawPhases(in context: inout GraphicsContext) {
+        // Under everything, so the grid, volume and candles all draw on top of the tint.
+        ChartPerformance.measure(.drawSessions) { drawSessionShading(in: &context) }
         var plotContext = context
         plotContext.clip(to: Path(frame.layout.plot))
         ChartPerformance.measure(.drawGrid) { drawGrid(in: &plotContext) }
@@ -88,6 +90,41 @@ struct BaseLayerRenderer {
     }
 
     // MARK: Layers
+
+    /// Tints the background behind pre-market, after-hours and overnight candles (roadmap 9.1).
+    ///
+    /// One rect per visible region per pane and one `fill` per kind, so the cost follows the number
+    /// of regions on screen (a handful), never the number of candles. Regions are cached when the
+    /// data changes; this only picks out the visible ones.
+    private func drawSessionShading(in context: inout GraphicsContext) {
+        guard !frame.sessionRegions.isEmpty, !frame.visible.isEmpty else { return }
+        let regions = SessionClassifier.regions(frame.sessionRegions, intersecting: frame.visible)
+        guard !regions.isEmpty else { return }
+
+        let half = CGFloat(frame.viewport.spacing) / 2
+        let plot = frame.layout.plot
+        // The tint runs through the indicator panes too, so a session lines up top to bottom.
+        let bands = [frame.layout.pricePane.plot] + frame.layout.indicatorPanes.map(\.plot)
+
+        for kind in TradingSession.Kind.allCases {
+            guard let color = frame.sessionShading.color(for: kind) else { continue }
+            var path = Path()
+            for region in regions where region.kind == kind {
+                // Candle `i` spans [centerX(i) - spacing/2, centerX(i) + spacing/2).
+                let left = pixels.snap(frame.centerX(ofCandle: region.range.lowerBound) - half)
+                let right = pixels.snap(frame.centerX(ofCandle: region.range.upperBound - 1) + half)
+                let minX = max(plot.minX, left)
+                let maxX = min(plot.maxX, right)
+                guard maxX > minX else { continue }
+                for band in bands {
+                    path.addRect(CGRect(x: minX, y: band.minY, width: maxX - minX, height: band.height))
+                }
+            }
+            if !path.isEmpty {
+                context.fill(path, with: .color(color))
+            }
+        }
+    }
 
     private func drawGrid(in context: inout GraphicsContext) {
         let plot = frame.layout.plot

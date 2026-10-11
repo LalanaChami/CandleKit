@@ -190,6 +190,10 @@ struct ChartFrame {
     let timeTickLabels: [String]
     /// Label for the last-price tag, or `nil` when there's no data.
     let lastPriceLabel: String?
+    /// Every session region in the series, oldest first (roadmap 9.1). The renderer picks out the
+    /// visible ones with `SessionClassifier.regions(_:intersecting:)`.
+    var sessionRegions: [SessionRegion] = []
+    var sessionShading = SessionShadingStyle()
 
     var plotWidth: Double { Double(layout.plot.width) }
 

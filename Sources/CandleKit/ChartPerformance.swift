@@ -36,9 +36,13 @@ public enum ChartPerformance {
         case timeTicks = "makeFrame.timeTicks"
         /// Formatting axis label strings inside `makeFrame` (skipped on a cache hit).
         case labels = "makeFrame.labels"
+        /// Rebuilding session regions inside `makeFrame` (only when the data or sessions change).
+        case sessions = "makeFrame.sessions"
         /// The whole base-layer Canvas closure.
         case drawTotal = "draw.total"
         case drawGrid = "draw.grid"
+        /// Pre-market, after-hours and overnight background tint.
+        case drawSessions = "draw.sessions"
         case drawVolume = "draw.volume"
         /// Batched steady-state candles.
         case drawCandles = "draw.candles"
@@ -211,8 +215,10 @@ private extension ChartPerformance.Phase {
         case .priceRange: return "makeFrame.priceRange"
         case .timeTicks: return "makeFrame.timeTicks"
         case .labels: return "makeFrame.labels"
+        case .sessions: return "makeFrame.sessions"
         case .drawTotal: return "draw.total"
         case .drawGrid: return "draw.grid"
+        case .drawSessions: return "draw.sessions"
         case .drawVolume: return "draw.volume"
         case .drawCandles: return "draw.candles"
         case .drawAppear: return "draw.appear"

@@ -178,6 +178,26 @@ Button("Share") {
 
 `ImageRenderer` can't see your view's environment, so pass `colorScheme` if the image should match what the person is looking at. The watermark is off unless you ask for one (`.candleKit`, or `ChartWatermark("yourapp.com")`). The image has the grid, volume, candles, indicators, axes and last-price tag; it leaves out the crosshair, drawings and the header, and draws a frosted price axis as a plain one. See the Demo app's share button on the Market screen.
 
+## Session shading
+
+`.tradingSessions(_:shading:)` tints the plot behind pre-market, after-hours and overnight candles, a common ask for US equities apps. CandleKit doesn't know what market a symbol trades on, so you describe the sessions:
+
+```swift
+CandlestickChart(candles)
+    .tradingSessions(TradingSession.usEquities)
+
+// or your own:
+CandlestickChart(candles)
+    .tradingSessions([
+        TradingSession(kind: .afterHours,
+                       startMinute: TradingSession.minute(hour: 16),
+                       endMinute: TradingSession.minute(hour: 20),
+                       timeZone: TimeZone(identifier: "America/New_York")!)
+    ], shading: SessionShadingStyle())
+```
+
+Only non-regular kinds are drawn; candles outside every listed window stay unshaded. Windows can run past midnight (`20:00` to `04:00`) and are matched against each candle's local time in the session's zone, daylight saving included. Sessions apply to series with an interval of one hour or shorter; on longer intervals nothing is shaded. The regions are worked out once when the data changes, not on every frame. See the "Session shading" card in the Demo's Styles tab.
+
 ## Customization
 
 | Modifier | Purpose |

@@ -633,11 +633,21 @@ tighter binary-size budget than a full app target.
 Real gaps against professional charting tools that aren't already covered by Phases 4–7. Unlike
 Phase 8, none of these need a platform a WebView can't reach — they're just missing today.
 
-- [ ] **9.1 Extended-hours / session shading.** Tint the plot background for pre-market and
+- [~] **9.1 Extended-hours / session shading.** Tint the plot background for pre-market and
       after-hours ranges (a very common ask for US equities apps). Needs a way to describe a
       symbol's trading sessions — probably a simple `TradingSession` value the app supplies, since
       CandleKit has no concept of "what market is this" — and a background-fill pass in the
       renderer keyed off it.
+
+      Written but not yet compiled or checked on a device; the Core tests (`TradingSessionTests`)
+      were not run because the authoring session had no Swift toolchain (expected values come from
+      an independent Python/zoneinfo script). Shipped as `TradingSession` and `SessionClassifier`
+      (`Sources/CandleKitCore/TradingSession.swift`), `SessionShadingStyle`, and
+      `.tradingSessions(_:shading:)`. Regions are computed once per data change and cached on the
+      state. Deviation from the original plan: sessions are classified only for intervals of one
+      hour or shorter (not "under a day"), since a daily or hourly-plus bar can't sit inside a
+      sub-hour window. *Verify: `swift test`; Device — tint colors in light and dark, boundaries
+      line up with candles, no hitch flinging a 1-minute series, Performance-tab capture.*
 - [ ] **9.2 Event markers.** Small tappable annotations on the time axis for earnings, dividends,
       or news — an app-supplied array of `(Date, label, kind)`, rendered as a marker glyph with a
       popover or callback on tap. Straightforward once indicator panes (5.3) establish a pattern
