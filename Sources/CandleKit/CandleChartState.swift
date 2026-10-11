@@ -104,6 +104,10 @@ public final class CandleChartState {
     /// just to know where things are. Not observed: whoever reads it is already being re-rendered
     /// for its own reasons.
     @ObservationIgnored private(set) var currentFrame: ChartFrame?
+    /// The style `currentFrame` was built with, so `snapshot(...)` can redraw the chart the way it
+    /// looks on screen without the caller passing the style a second time. Written at the top of
+    /// `buildFrame`, like the other `@ObservationIgnored` bookkeeping in this file.
+    @ObservationIgnored private(set) var currentStyle: CandleChartStyle?
 
     // Axis label strings are cached against the ticks that produced them. Number and date
     // formatting is expensive enough to matter when it runs for every label on every frame, and
@@ -451,6 +455,7 @@ public final class CandleChartState {
         showsVolume: Bool,
         fractionDigits: Int?
     ) -> ChartFrame {
+        currentStyle = style
         // Panes have to be decided before the layout, because they determine how much vertical
         // space the price pane is left with.
         let activeIndicators = indicators.filter(\.isVisible)

@@ -159,6 +159,25 @@ for crossing in priceCrossings(in: candles, levels: [100_000]) {
 
 Works the same whether `candles` just had a new one appended or had its last candle updated in place by a live tick — call it again after every update, not just once. See the Demo app's price-alert control (the bell in the floating tool dock beneath the chart).
 
+## Sharing the chart as an image
+
+`CandleChartState.snapshot(scale:colorScheme:watermark:)` renders the chart as it looks right now (same visible range, zoom and price scale) into a `UIImage`, so it can go to a share sheet, Photos or the pasteboard. Pass your own `CandleChartState` to the chart so you have something to ask:
+
+```swift
+@State private var chartState = CandleChartState()
+@Environment(\.colorScheme) private var colorScheme
+
+CandlestickChart(candles, state: chartState)
+
+Button("Share") {
+    if let image = chartState.snapshot(colorScheme: colorScheme, watermark: .candleKit) {
+        present(shareSheetFor: image)
+    }
+}
+```
+
+`ImageRenderer` can't see your view's environment, so pass `colorScheme` if the image should match what the person is looking at. The watermark is off unless you ask for one (`.candleKit`, or `ChartWatermark("yourapp.com")`). The image has the grid, volume, candles, indicators, axes and last-price tag; it leaves out the crosshair, drawings and the header, and draws a frosted price axis as a plain one. See the Demo app's share button on the Market screen.
+
 ## Customization
 
 | Modifier | Purpose |

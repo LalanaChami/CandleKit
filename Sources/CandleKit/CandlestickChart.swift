@@ -395,18 +395,32 @@ private struct PriceAxisGlassPanel: View {
                         .position(x: axis.midX, y: axis.midY)
                 }
 
-                ForEach(frame.priceTicks.values.indices, id: \.self) { index in
-                    let y = frame.y(forPrice: frame.priceTicks.values[index])
-                    if y > axis.minY + 6, y < axis.maxY - 6 {
-                        Text(frame.priceTickLabels[index])
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(style.axisLabelColor)
-                            .frame(width: axis.width, alignment: .center)
-                            .position(x: axis.midX, y: y)
-                    }
-                }
+                PriceAxisLabels(frame: frame, style: style)
             }
             .allowsHitTesting(false)
+        }
+    }
+}
+
+/// The price axis's tick labels, positioned in the chart's own coordinate space.
+///
+/// Shared by `PriceAxisGlassPanel` (the live chart) and `ChartSnapshotView` (the image
+/// `CandleChartState.snapshot(...)` renders), so the two can't drift apart.
+struct PriceAxisLabels: View {
+    let frame: ChartFrame
+    let style: CandleChartStyle
+
+    var body: some View {
+        let axis = frame.layout.priceAxis
+        ForEach(frame.priceTicks.values.indices, id: \.self) { index in
+            let y = frame.y(forPrice: frame.priceTicks.values[index])
+            if y > axis.minY + 6, y < axis.maxY - 6 {
+                Text(frame.priceTickLabels[index])
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(style.axisLabelColor)
+                    .frame(width: axis.width, alignment: .center)
+                    .position(x: axis.midX, y: y)
+            }
         }
     }
 }

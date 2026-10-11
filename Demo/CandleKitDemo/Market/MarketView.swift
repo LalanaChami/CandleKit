@@ -34,6 +34,12 @@ struct MarketView: View {
     @State private var feed = MarketFeed()
     @State private var chartState = CandleChartState(candleSpacing: 9)
 
+    // Share chart as image (roadmap 8.5): `chartState.snapshot(...)` renders the chart as it looks
+    // right now; the sheet below hands that image to the system share sheet. The color scheme is
+    // passed through because `ImageRenderer` can't see this view's environment on its own.
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var sharedImage: SharedChartImage?
+
     @State private var source: DataSourceKind = .coinbase
     @State private var product: Product = .bitcoin
     @State private var timeframe: Timeframe = .fiveMinutes
@@ -119,17 +125,33 @@ struct MarketView: View {
 
                     Spacer(minLength: 8)
 
-                    Button {
-                        Haptics.tap()
-                        showingChartOptions = true
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .frame(width: 32, height: 32)
-                            .background(.thinMaterial, in: Circle())
+                    HStack(spacing: 8) {
+                        Button {
+                            Haptics.tap()
+                            if let image = chartState.snapshot(colorScheme: colorScheme, watermark: .candleKit) {
+                                sharedImage = SharedChartImage(image: image)
+                            }
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .frame(width: 32, height: 32)
+                                .background(.thinMaterial, in: Circle())
+                        }
+                        .accessibilityLabel("Share chart image")
+
+                        Button {
+                            Haptics.tap()
+                            showingChartOptions = true
+                        } label: {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .frame(width: 32, height: 32)
+                                .background(.thinMaterial, in: Circle())
+                        }
+                        .accessibilityLabel("Chart options")
                     }
-                    .accessibilityLabel("Chart options")
                 }
                 .padding(.top, 6)
 
@@ -181,6 +203,10 @@ struct MarketView: View {
         }
         .task(id: configuration) {
             await feed.run(configuration)
+        }
+        .sheet(item: $sharedImage) { shared in
+            ActivityView(items: [shared.image])
+                .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showingLayoutsSheet) {
             LayoutsSheet(
@@ -475,6 +501,24 @@ private struct AlertFiredBanner: View {
     }
 
     private var tint: Color { alert.direction == .upward ? .green : .red }
+}
+
+/// A chart image waiting to be shared. `Identifiable` so `.sheet(item:)` can present it.
+private struct SharedChartImage: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+
+/// The system share sheet. SwiftUI's `ShareLink` wants its item up front, but this image is only
+/// worth rendering at the moment of the tap, so the demo presents `UIActivityViewController` itself.
+private struct ActivityView: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 /// A single, transient toast for non-blocking feedback (layout saved/loaded/failed) — replaces the

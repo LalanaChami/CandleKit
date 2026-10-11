@@ -6,6 +6,19 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added — Share chart as image (roadmap 8.5)
+
+`CandleChartState.snapshot(scale:colorScheme:watermark:)` returns a `UIImage` of the chart as it
+currently looks on screen, for sharing or saving. It redraws the state's last `ChartFrame` through
+`ImageRenderer`, using the same `ChartBaseLayer` Canvas as the live chart, so the image can't drift
+from the screen. `PriceAxisGlassPanel`'s tick-label loop moved into a shared `PriceAxisLabels` view
+for the same reason, and `CandleChartState` now remembers the `CandleChartStyle` its current frame
+was built with (`currentStyle`, `@ObservationIgnored`). `ChartWatermark` adds an opt-in corner label
+(`.candleKit` or your own text); there is no watermark by default. Not in the image yet: crosshair,
+drawings and the header; a frosted axis is drawn plain. The Demo's Market screen gets a share button.
+Written without a compiler or a device: the iOS build and the checks listed under 8.5 in
+`docs/ROADMAP.md` still need to be run.
+
 ### Docs — Repository hygiene: real build commands in CONTRIBUTING.md, formatting decision
 
 `CONTRIBUTING.md` had generic, Xcode-GUI-only build instructions. It now has a "Building and

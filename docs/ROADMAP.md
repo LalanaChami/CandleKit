@@ -603,11 +603,20 @@ because the platform already does most of the work.
       "show me \<symbol\>'s chart," so it's reachable from Siri, Shortcuts, and Spotlight. This is
       mostly a documented integration pattern for host apps rather than new CandleKit surface —
       write the guide, provide a starter `AppIntent` conformance as sample code in the Demo.
-- [ ] **8.5 Share chart as image.** Render the current visible chart (with a small CandleKit or
+- [~] **8.5 Share chart as image.** Render the current visible chart (with a small CandleKit or
       app-supplied watermark) as a `UIImage`/`ImageRenderer` output for sharing to Messages or
       saving to Photos — the feature that makes Robinhood/Coinbase/Webull screenshots spread on
       social media. SwiftUI's `ImageRenderer` makes this close to free for a native view; it's not
       available to a WebView chart without a manual screenshot dance.
+
+      Written but not yet compiled or checked on a device. Shipped as
+      `CandleChartState.snapshot(scale:colorScheme:watermark:)` (`Sources/CandleKit/ChartSnapshot.swift`),
+      which redraws the current `ChartFrame` with the live chart's own `ChartBaseLayer` and a shared
+      `PriceAxisLabels` view. The watermark is opt-in (`ChartWatermark`), not default branding. v1
+      leaves out the crosshair, drawings and header, and draws a glass axis as a plain one because
+      `Material` doesn't render under `ImageRenderer`. *Verify: Device — image in light and dark mode,
+      candles and axis aligned with the screen, the last-price tag in the right place, the watermark
+      not overlapping candles, and the demo's share sheet opening.*
 - [ ] **8.6 visionOS depth.** (design first, extends Phase 11.3) Beyond "does it render on glass":
       does a floating chart benefit from real depth — candles with subtle z-extrusion, or multiple
       symbols arranged in space for comparison? Needs hands-on time with a device or simulator
