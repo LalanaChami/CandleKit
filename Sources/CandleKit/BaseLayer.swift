@@ -60,11 +60,13 @@ struct BaseLayerRenderer {
             fadedContext.opacity *= appearPhase
             ChartPerformance.measure(.drawVolume) { drawVolume(in: &fadedContext) }
             ChartPerformance.measure(.drawIndicators) { drawIndicators(in: &fadedContext) }
+            drawComparison(in: &fadedContext)
             drawLastPriceLine(in: &fadedContext)
         } else {
             ChartPerformance.measure(.drawVolume) { drawVolume(in: &plotContext) }
             ChartPerformance.measure(.drawCandles) { drawCandles(in: &plotContext) }
             ChartPerformance.measure(.drawIndicators) { drawIndicators(in: &plotContext) }
+            drawComparison(in: &plotContext)
             drawLastPriceLine(in: &plotContext)
         }
         ChartPerformance.measure(.drawIndicators) { drawPanes(in: &context) }
@@ -369,6 +371,21 @@ struct BaseLayerRenderer {
         let mapping = priceMapping
         for indicator in frame.indicators {
             draw(indicator, using: mapping, in: &context)
+        }
+    }
+
+    /// Draws the lines added with `.comparing(...)`. Each is its aligned closes times a constant, so
+    /// the ordinary price scale maps it; the pen lifts across the `nil` gaps `SeriesAlignment` leaves.
+    private func drawComparison(in context: inout GraphicsContext) {
+        guard let comparison = frame.comparison else { return }
+        for line in comparison.lines {
+            let factor = line.factor
+            let mapping = ValueMapping(y: { frame.y(forPrice: $0 * factor) }, plot: frame.layout.plot)
+            context.stroke(
+                polyline(line.values, using: mapping),
+                with: .color(line.color),
+                style: StrokeStyle(lineWidth: line.lineWidth, lineCap: .round, lineJoin: .round)
+            )
         }
     }
 

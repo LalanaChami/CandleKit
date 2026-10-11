@@ -27,6 +27,8 @@ public struct CandlestickChart: View {
     private var showsHeader = true
     private var sessions: [TradingSession] = []
     private var sessionShading = SessionShadingStyle()
+    private var comparisonSeries: [ComparisonSeries] = []
+    private var comparisonNormalization = ComparisonNormalization.percentChange
     private var fractionDigits: Int?
     private var crosshairHandler: ((Candle?) -> Void)?
     private var oldestCandleHandler: (() -> Void)?
@@ -74,6 +76,9 @@ public struct CandlestickChart: View {
             if showsHeader && !candles.isEmpty {
                 ChartHeader(state: state, candles: candles, fractionDigits: headerDigits, style: style)
             }
+            if !comparisonSeries.isEmpty && !candles.isEmpty {
+                ComparisonLegend(state: state, style: style)
+            }
 
             GeometryReader { proxy in
                 let metrics = ChartMetrics(
@@ -105,7 +110,9 @@ public struct CandlestickChart: View {
                         fractionDigits: fractionDigits,
                         style: style,
                         sessions: sessions,
-                        sessionShading: sessionShading
+                        sessionShading: sessionShading,
+                        comparisonSeries: comparisonSeries,
+                        comparisonNormalization: comparisonNormalization
                     )
                     PriceAxisGlassPanel(state: state, style: style)
                     CrosshairLayer(state: state, style: style)
@@ -159,6 +166,8 @@ private struct ChartContentLayer: View {
     let style: CandleChartStyle
     let sessions: [TradingSession]
     let sessionShading: SessionShadingStyle
+    let comparisonSeries: [ComparisonSeries]
+    let comparisonNormalization: ComparisonNormalization
 
     var body: some View {
         let _ = state.revision
@@ -177,7 +186,9 @@ private struct ChartContentLayer: View {
             showsVolume: showsVolume,
             fractionDigits: fractionDigits,
             sessions: sessions,
-            sessionShading: sessionShading
+            sessionShading: sessionShading,
+            comparisonSeries: comparisonSeries,
+            comparisonNormalization: comparisonNormalization
         )
         ChartBaseLayer(frame: frame, style: style, appearPhase: state.appearPhase, focusedCandleIndex: focusedCandleIndex)
     }
@@ -469,6 +480,40 @@ extension CandlestickChart {
         var copy = self
         copy.sessions = sessions
         copy.sessionShading = shading
+        return copy
+    }
+
+    /// Plots other instruments over the chart's own series, to compare how they moved.
+    ///
+    /// ```swift
+    /// CandlestickChart(appleCandles)
+    ///     .comparing([ComparisonSeries(name: "MSFT", candles: microsoftCandles)])
+    /// ```
+    ///
+    /// The price axis switches from prices to percent change (or an index starting at 100) measured
+    /// from the first candle on screen, and every comparison line starts on the chart's own price at
+    /// the first visible candle where it has data. So the axis re-bases as you scroll and zoom, the
+    /// way comparison charts in trading apps do. The chart's candles keep their shape; the lines
+    /// are drawn on top.
+    ///
+    /// Series don't need the same candle times. Each chart candle shows the latest close at or
+    /// before it, and a series with no recent data (a different market's holiday, say) shows a break
+    /// instead of an invented flat line.
+    ///
+    /// In this version the header, accessibility summary and drawings still use the chart's own
+    /// prices, and there is no separate secondary axis.
+    ///
+    /// - Parameters:
+    ///   - series: The instruments to compare. Pass an empty array to turn comparison off.
+    ///   - normalization: Percent change from the first visible candle (the default) or an index
+    ///     that starts at 100 there.
+    public func comparing(
+        _ series: [ComparisonSeries],
+        normalization: ComparisonNormalization = .percentChange
+    ) -> CandlestickChart {
+        var copy = self
+        copy.comparisonSeries = series
+        copy.comparisonNormalization = normalization
         return copy
     }
 

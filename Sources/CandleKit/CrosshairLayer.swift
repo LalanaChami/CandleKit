@@ -72,7 +72,7 @@ struct CrosshairLayer: View {
                     // These format on every crosshair move, which is fine — bounded by how fast a
                     // finger moves, not by the animation frame rate.
                     ChartText.drawPriceTag(
-                        ChartFormat.price(frame.price(atY: y), digits: frame.priceFractionDigits),
+                        frame.axisLabel(forPrice: frame.price(atY: y)),
                         y: y,
                         in: frame.layout.priceAxis,
                         background: tagBackground,

@@ -30,6 +30,11 @@ public struct PriceTicks: Hashable, Sendable {
     public let values: [Double]
     public let step: Double
 
+    public init(values: [Double], step: Double) {
+        self.values = values
+        self.step = step
+    }
+
     /// Decimal places needed to tell adjacent ticks apart.
     public var fractionDigits: Int { PriceScale.fractionDigits(forStep: step) }
 }
@@ -40,6 +45,7 @@ public enum PriceScale {
         for candles: [Candle],
         in visible: Range<Int>,
         including series: [[Double?]] = [],
+        extent: ClosedRange<Double>? = nil,
         paddingFraction: Double = 0.08
     ) -> ClosedRange<Double>? {
         let range = visible.clamped(to: 0..<candles.count)
@@ -58,6 +64,12 @@ public enum PriceScale {
                     high = max(high, value)
                 }
             }
+        }
+        // A precomputed extent folded in before padding, for callers (multi-symbol comparison)
+        // whose extra values aren't stored as a full-length array.
+        if let extent {
+            low = min(low, extent.lowerBound)
+            high = max(high, extent.upperBound)
         }
         guard low.isFinite, high.isFinite else { return nil }
         if low > high { swap(&low, &high) }

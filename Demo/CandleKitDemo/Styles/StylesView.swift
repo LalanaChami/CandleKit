@@ -35,6 +35,26 @@ struct StylesView: View {
         }
     }()
 
+    /// Two other instruments for the "Comparison" card. The second starts 40 days into the chart, so
+    /// the card also shows a series that begins part-way through.
+    private static let comparisonSeries: [ComparisonSeries] = [
+        ComparisonSeries(
+            name: "IDX",
+            candles: CandleSampleData.randomWalk(count: 160, interval: 86_400, startPrice: 4_800, volatility: 0.012, seed: 3)
+        ),
+        ComparisonSeries(
+            name: "ALT",
+            candles: CandleSampleData.randomWalk(
+                count: 120,
+                start: Date(timeIntervalSince1970: 1_767_225_600 + 40 * 86_400),
+                interval: 86_400,
+                startPrice: 60,
+                volatility: 0.025,
+                seed: 17
+            )
+        ),
+    ]
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -42,7 +62,8 @@ struct StylesView: View {
                     ForEach(StyleExample.all) { example in
                         StyleExampleCard(
                             example: example,
-                            candles: example.intraday ? Self.intradayCandles : Self.candles
+                            candles: example.intraday ? Self.intradayCandles : Self.candles,
+                            comparison: example.compares ? Self.comparisonSeries : []
                         )
                     }
                 }
@@ -65,6 +86,8 @@ struct StyleExample: Identifiable {
     /// Uses the 15-minute US-equities series instead of the daily one.
     var intraday = false
     var sessions: [TradingSession] = []
+    /// Plots the demo's two other instruments over the chart.
+    var compares = false
 
     // Computed rather than stored: `CandleChartStyle` holds colors and isn't declared `Sendable`.
     static var all: [StyleExample] {
@@ -118,6 +141,12 @@ struct StyleExample: Identifiable {
                 sessions: TradingSession.usEquities
             ),
             StyleExample(
+                id: "Comparison",
+                summary: "Other instruments plotted over the chart. The axis switches to percent change from the first visible candle, so scrolling and zooming re-bases it. ALT starts part-way through.",
+                code: "CandlestickChart(candles)\n    .comparing([\n        ComparisonSeries(name: \"IDX\", candles: index),\n        ComparisonSeries(name: \"ALT\", candles: alt),\n    ])",
+                compares: true
+            ),
+            StyleExample(
                 id: "Compact",
                 summary: "No header or volume, for cards and lists.",
                 code: "CandlestickChart(candles)\n    .headerVisible(false)\n    .volumeVisible(false)",
@@ -132,6 +161,7 @@ struct StyleExample: Identifiable {
 private struct StyleExampleCard: View {
     let example: StyleExample
     let candles: [Candle]
+    var comparison: [ComparisonSeries] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -147,6 +177,7 @@ private struct StyleExampleCard: View {
                 .headerVisible(example.showsHeader)
                 .volumeVisible(example.showsVolume)
                 .tradingSessions(example.sessions)
+                .comparing(comparison)
                 .frame(height: example.height)
 
             Text(example.code)

@@ -194,6 +194,8 @@ struct ChartFrame {
     /// visible ones with `SessionClassifier.regions(_:intersecting:)`.
     var sessionRegions: [SessionRegion] = []
     var sessionShading = SessionShadingStyle()
+    /// Comparison lines and the axis conversion when `.comparing(...)` is in use (roadmap 7.6).
+    var comparison: ComparisonFrame?
 
     var plotWidth: Double { Double(layout.plot.width) }
 

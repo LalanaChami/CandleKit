@@ -198,6 +198,20 @@ CandlestickChart(candles)
 
 Only non-regular kinds are drawn; candles outside every listed window stay unshaded. Windows can run past midnight (`20:00` to `04:00`) and are matched against each candle's local time in the session's zone, daylight saving included. Sessions apply to series with an interval of one hour or shorter; on longer intervals nothing is shaded. The regions are worked out once when the data changes, not on every frame. See the "Session shading" card in the Demo's Styles tab.
 
+## Comparing instruments
+
+`.comparing(_:normalization:)` plots other instruments over the chart so you can see how they moved relative to each other:
+
+```swift
+CandlestickChart(appleCandles)
+    .comparing([
+        ComparisonSeries(name: "MSFT", candles: microsoftCandles),
+        ComparisonSeries(name: "SPY", candles: indexCandles, color: .gray),
+    ])
+```
+
+The price axis switches to percent change from the first candle on screen (or, with `normalization: .indexed100`, an index that starts at 100), and each line starts on the chart's own price where it first has data, so the axis re-bases as you scroll and zoom. A legend under the header shows each line's value and follows the crosshair. The series don't need the same candle times: each chart candle shows the latest close at or before it, and a series with no recent data shows a break rather than a flat line. The header, VoiceOver summary and drawings still use the chart's own prices, and there is no separate secondary axis yet. See `docs/design/comparison.md` and the Demo's "Comparison" card.
+
 ## Customization
 
 | Modifier | Purpose |

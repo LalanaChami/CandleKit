@@ -500,7 +500,7 @@ developers.
 
 ### Comparison
 
-- [ ] **7.6 Multi-symbol comparison.** (design first — was 9.2) Plot two or more series together:
+- [~] **7.6 Multi-symbol comparison.** (design first — was 9.2) Plot two or more series together:
       - Normalization modes: percent change from the first visible candle, indexed to 100, or a real
         secondary price axis.
       - Per-series colour and line style, with a legend.
@@ -512,6 +512,16 @@ developers.
 
       Decide during the design note whether this is a mode of `CandlestickChart` or a separate public
       view sharing `CandleKitCore`'s scale math.
+
+      Written but not yet compiled or checked on a device; the Core tests (`ComparisonTests`) were
+      not run because the authoring session had no Swift toolchain (expected values checked with an
+      independent Python script). Design in `docs/design/comparison.md`: a mode of `CandlestickChart`
+      (`.comparing(_:normalization:)`, `ComparisonSeries`), percent-change and indexed-to-100 axes,
+      timestamp alignment with explicit gaps, and a legend under the header. Not done: a real
+      secondary axis, per-series line styles, comparison in `ChartLayout`, percent-aware header and
+      drawings. *Verify: `swift test`; Device — lines and percent axis while panning, zooming,
+      prepending history and with the crosshair; ALT-style late-start series; light and dark;
+      VoiceOver unchanged; Performance-tab capture.*
 
 ---
 
@@ -728,7 +738,7 @@ partly on "how fast can I get this working and keep it working," not only on fea
 5. **Naming:** keep `CandleKit`, pending the 3.4 check?
 6. **Phase 8 sequencing:** widgets/watch/Live Activities (8.1–8.3) are the strongest "native beats WebView" argument but also the most work for the least certain payoff — is there a specific app (yours, or an early adopter's) that would actually ship one of these, or is this speculative until there's a concrete use case pulling it?
 7. **Multi-package split:** Phase 8 recommends separate SPM products per platform surface (`CandleKitWidgets`, `CandleKitWatch`). Worth deciding the package layout convention before the first one ships, rather than after.
-8. **7.6's design boundary:** should multi-symbol comparison be a mode of `CandlestickChart`, or a second public view type? Whichever way this goes shapes the public API, so it's worth deciding before 7.6 starts rather than during it.
+8. **7.6's design boundary** (recommendation: a mode of `CandlestickChart`, as implemented — see `docs/design/comparison.md`; confirm or overrule): should multi-symbol comparison be a mode of `CandlestickChart`, or a second public view type? Whichever way this goes shapes the public API, so it's worth deciding before 7.6 starts rather than during it.
 9. **Persistence:** 7.4 argues for `Codable` in the core with SwiftData as an optional companion, rather than Core Data or SwiftData in the library itself. Worth confirming you agree before anything gets built against it.
 10. **Indicator conventions:** when a Tier 1 indicator has more than one common definition (RSI smoothing, ATR smoothing, MACD signal seeding), is matching TradingView's numbers the priority, or matching the textbook definition? These occasionally differ, and users will compare against TradingView.
 

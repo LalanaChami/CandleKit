@@ -114,6 +114,19 @@ public final class CandleChartState {
     @ObservationIgnored private var cachedSessions: [TradingSession] = []
     @ObservationIgnored private var cachedSessionRegions: [SessionRegion] = []
 
+    // Multi-symbol comparison (roadmap 7.6). Alignment is O(candles), so it reruns only when the
+    // data or a comparison series changes. The scaling (anchor and factors) is O(visible) and is
+    // refreshed on the same cadence as the cached price range — not while scrolling — so the lines
+    // don't slide against the candles during a pan.
+    @ObservationIgnored private var cachedComparisonKeys: [ComparisonKey] = []
+    @ObservationIgnored private var cachedComparisonAligned: [[Double?]] = []
+    @ObservationIgnored private var cachedScaling: ComparisonScaling?
+    @ObservationIgnored private var cachedComparisonTicks: PriceTicks?
+    @ObservationIgnored private var cachedComparisonNormalization: ComparisonNormalization?
+    @ObservationIgnored private var cachedComparisonTickLabels: [String] = []
+    @ObservationIgnored private var cachedComparisonLastKey: [Double] = []
+    @ObservationIgnored private var cachedComparisonLastLabel: String?
+
     // Axis label strings are cached against the ticks that produced them. Number and date
     // formatting is expensive enough to matter when it runs for every label on every frame, and
     // while panning the tick values usually don't change at all from one frame to the next.
@@ -438,7 +451,9 @@ public final class CandleChartState {
         showsVolume: Bool,
         fractionDigits: Int?,
         sessions: [TradingSession],
-        sessionShading: SessionShadingStyle
+        sessionShading: SessionShadingStyle,
+        comparisonSeries: [ComparisonSeries] = [],
+        comparisonNormalization: ComparisonNormalization = .percentChange
     ) -> ChartFrame {
         ChartPerformance.measure(.makeFrame) {
             buildFrame(
@@ -450,7 +465,9 @@ public final class CandleChartState {
                 showsVolume: showsVolume,
                 fractionDigits: fractionDigits,
                 sessions: sessions,
-                sessionShading: sessionShading
+                sessionShading: sessionShading,
+                comparisonSeries: comparisonSeries,
+                comparisonNormalization: comparisonNormalization
             )
         }
     }
@@ -464,7 +481,9 @@ public final class CandleChartState {
         showsVolume: Bool,
         fractionDigits: Int?,
         sessions: [TradingSession],
-        sessionShading: SessionShadingStyle
+        sessionShading: SessionShadingStyle,
+        comparisonSeries: [ComparisonSeries],
+        comparisonNormalization: ComparisonNormalization
     ) -> ChartFrame {
         currentStyle = style
         // Panes have to be decided before the layout, because they determine how much vertical
@@ -569,6 +588,35 @@ public final class CandleChartState {
             }
         }
         let visible = viewport.visibleRange(width: plotWidth, count: newCandles.count)
+
+        // Comparison series: realign on a data change, rescale on the price-range cadence.
+        if comparisonSeries.isEmpty {
+            cachedComparisonKeys = []
+            cachedComparisonAligned = []
+            cachedScaling = nil
+        } else {
+            let keys = comparisonSeries.map(ComparisonKey.init)
+            var needsScaling = !isScrolling || cachedScaling == nil || change != .unchanged
+            if keys != cachedComparisonKeys || change != .unchanged {
+                cachedComparisonAligned = comparisonSeries.map {
+                    SeriesAlignment.align(primary: newCandles, other: $0.candles)
+                }
+                cachedComparisonKeys = keys
+                needsScaling = true
+            }
+            if cachedScaling?.normalization != comparisonNormalization {
+                needsScaling = true
+            }
+            if needsScaling {
+                cachedScaling = ComparisonMath.scaling(
+                    primary: newCandles,
+                    aligned: cachedComparisonAligned,
+                    visible: visible,
+                    normalization: comparisonNormalization
+                )
+            }
+        }
+
         // While scrolling, reuse the cached price range so horizontal panning doesn't shift candle heights.
         // Update on data change, zoom (change == .unchanged but !isScrolling covers non-pan interactions),
         // or when no cache exists yet. A ±15-candle window means occasional boundary candles don't jitter
@@ -580,7 +628,26 @@ public final class CandleChartState {
         } else if !isScrolling || cachedPriceRange == nil || change != .unchanged {
             ChartPerformance.measure(.priceRange) {
                 let priceWindow = max(0, visible.lowerBound - 15)..<min(newCandles.count, visible.upperBound + 15)
-                cachedPriceRange = PriceScale.autoRange(for: newCandles, in: priceWindow, including: priceOverlaySeries) ?? 0...1
+                // Comparison lines must stay on screen too, so their extent widens the range.
+                var comparisonExtent: ClosedRange<Double>?
+                if let scaling = cachedScaling {
+                    for (index, factor) in scaling.factors.enumerated() where index < cachedComparisonAligned.count {
+                        guard let factor,
+                              let extent = ComparisonMath.extent(of: cachedComparisonAligned[index], factor: factor, in: priceWindow)
+                        else { continue }
+                        if let existing = comparisonExtent {
+                            comparisonExtent = min(existing.lowerBound, extent.lowerBound)...max(existing.upperBound, extent.upperBound)
+                        } else {
+                            comparisonExtent = extent
+                        }
+                    }
+                }
+                cachedPriceRange = PriceScale.autoRange(
+                    for: newCandles,
+                    in: priceWindow,
+                    including: priceOverlaySeries,
+                    extent: comparisonExtent
+                ) ?? 0...1
             }
         }
         let priceRange = cachedPriceRange!
@@ -590,10 +657,19 @@ public final class CandleChartState {
             rangeEnd: Double(layout.priceBand.lowerBound)
         )
         let bandHeight = Double(layout.priceBand.upperBound - layout.priceBand.lowerBound)
-        let priceTicks = PriceScale.niceTicks(
-            in: priceRange,
-            approximateCount: max(2, Int(bandHeight / metrics.priceTickSpacing))
-        )
+        let approximateTickCount = max(2, Int(bandHeight / metrics.priceTickSpacing))
+        // In comparison mode the axis reads percent (or index), so ticks are chosen in that space —
+        // round percentages, not round prices — and mapped back to where they sit on the price scale.
+        var axisTicks: PriceTicks?
+        let priceTicks: PriceTicks
+        if let scaling = cachedScaling {
+            let axisRange = scaling.axisValue(forPrice: priceRange.lowerBound)...scaling.axisValue(forPrice: priceRange.upperBound)
+            let chosen = PriceScale.niceTicks(in: axisRange, approximateCount: approximateTickCount)
+            axisTicks = chosen
+            priceTicks = PriceTicks(values: chosen.values.map { scaling.price(forAxisValue: $0) }, step: chosen.step)
+        } else {
+            priceTicks = PriceScale.niceTicks(in: priceRange, approximateCount: approximateTickCount)
+        }
 
         var volumeMax = 0.0
         for index in visible {
@@ -662,8 +738,28 @@ public final class CandleChartState {
                 priceTicks: priceTicks,
                 timeTicks: timeTicks,
                 candles: newCandles,
-                fractionDigits: fractionDigits
+                fractionDigits: fractionDigits,
+                comparisonScaling: cachedScaling,
+                axisTicks: axisTicks
             )
+        }
+
+        var comparisonFrame: ComparisonFrame?
+        if let scaling = cachedScaling {
+            var lines: [ComparisonLine] = []
+            for (index, series) in comparisonSeries.enumerated()
+            where index < scaling.factors.count && index < cachedComparisonAligned.count {
+                guard let factor = scaling.factors[index] else { continue }
+                let palette = style.indicatorPalette
+                lines.append(ComparisonLine(
+                    name: series.name,
+                    color: series.color ?? (palette.isEmpty ? .orange : palette[index % palette.count]),
+                    lineWidth: series.lineWidth,
+                    values: cachedComparisonAligned[index],
+                    factor: factor
+                ))
+            }
+            comparisonFrame = ComparisonFrame(scaling: scaling, lines: lines)
         }
 
         let frame = ChartFrame(
@@ -684,7 +780,8 @@ public final class CandleChartState {
             timeTickLabels: labels.timeLabels,
             lastPriceLabel: labels.lastPrice,
             sessionRegions: cachedSessionRegions,
-            sessionShading: sessionShading
+            sessionShading: sessionShading,
+            comparison: comparisonFrame
         )
 
         // Store this frame so subsequent animation ticks can return immediately without recomputing.
@@ -703,10 +800,23 @@ public final class CandleChartState {
         priceTicks: PriceTicks,
         timeTicks: [TimeTick],
         candles newCandles: [Candle],
-        fractionDigits: Int?
+        fractionDigits: Int?,
+        comparisonScaling: ComparisonScaling?,
+        axisTicks: PriceTicks?
     ) -> (priceLabels: [String], baseUnit: TimeLabelUnit, timeLabels: [String], digits: Int, lastPrice: String?) {
         let priceTickLabels: [String]
-        if let cachedPriceTicks, cachedPriceTicks == priceTicks {
+        if let scaling = comparisonScaling, let axisTicks {
+            // Labels come from the axis-space ticks (percent or index), cached against them.
+            if cachedComparisonTicks != axisTicks || cachedComparisonNormalization != scaling.normalization {
+                let digits = max(axisTicks.fractionDigits, scaling.normalization == .percentChange ? 1 : 0)
+                cachedComparisonTickLabels = axisTicks.values.map {
+                    ComparisonFormat.string($0, normalization: scaling.normalization, digits: digits)
+                }
+                cachedComparisonTicks = axisTicks
+                cachedComparisonNormalization = scaling.normalization
+            }
+            priceTickLabels = cachedComparisonTickLabels
+        } else if let cachedPriceTicks, cachedPriceTicks == priceTicks {
             priceTickLabels = cachedPriceTickLabels
         } else {
             let digits = priceTicks.fractionDigits
@@ -728,7 +838,19 @@ public final class CandleChartState {
         let resolvedDigits = fractionDigits ?? PriceScale.suggestedFractionDigits(forPrice: newCandles.last?.close ?? 0)
         let lastClose = newCandles.last?.close
         let lastPriceLabel: String?
-        if lastClose == cachedLastPrice, resolvedDigits == cachedLastPriceDigits {
+        if let scaling = comparisonScaling, let lastClose {
+            // The tag reads in the axis' units too. Cached against everything it depends on.
+            let key = [lastClose, scaling.base, scaling.normalization == .percentChange ? 0 : 1]
+            if key != cachedComparisonLastKey {
+                cachedComparisonLastLabel = ComparisonFormat.string(
+                    scaling.axisValue(forPrice: lastClose),
+                    normalization: scaling.normalization,
+                    digits: 2
+                )
+                cachedComparisonLastKey = key
+            }
+            lastPriceLabel = cachedComparisonLastLabel
+        } else if lastClose == cachedLastPrice, resolvedDigits == cachedLastPriceDigits {
             lastPriceLabel = cachedLastPriceLabel
         } else {
             lastPriceLabel = lastClose.map { ChartFormat.price($0, digits: resolvedDigits) }

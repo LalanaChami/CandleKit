@@ -19,6 +19,18 @@ drawings and the header; a frosted axis is drawn plain. The Demo's Market screen
 Written without a compiler or a device: the iOS build and the checks listed under 8.5 in
 `docs/ROADMAP.md` still need to be run.
 
+### Added — Multi-symbol comparison (roadmap 7.6)
+
+`.comparing(_:normalization:)` plots other instruments over the chart. `ComparisonSeries` carries a
+name, candles, optional color and line width. The price axis becomes percent change from the first
+visible candle (or an index starting at 100), the crosshair and last-price tags follow, and a legend
+under the header shows each line's value. `CandleKitCore` gains `SeriesAlignment.align` (timestamp
+alignment with explicit gaps), `ComparisonMath` and `ComparisonScaling`; `PriceScale.autoRange` gains
+an `extent:` parameter and `PriceTicks` a public initializer. Each comparison line is its closes
+times one constant, so the candle renderer is unchanged. Design in `docs/design/comparison.md`.
+Written without a compiler or a device: the Core tests and the iOS build still need to be run (see
+7.6 in `docs/ROADMAP.md`). The header, accessibility summary and drawings keep the chart's own prices.
+
 ### Added — Extended-hours / session shading (roadmap 9.1)
 
 `.tradingSessions(_:shading:)` tints the plot behind pre-market, after-hours and overnight candles.
