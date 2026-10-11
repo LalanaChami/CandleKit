@@ -6,6 +6,10 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added — Documentation media
+
+Real Simulator GIFs and screenshots (demo tour, replay, comparison, session shading, Chart Options, Layouts, share sheet, home-screen widget, Live Activity) in `docs-assets/media/`, shown in the README and in new website guides for comparison and sessions, replay, and widgets and Live Activities. The App Intents flow in Shortcuts has no capture yet.
+
 ### Changed — Demo: comparison, session shading and replay in Chart Options
 
 The Market screen's Chart Options sheet now has Compare (up to three symbols of the same kind, percent or indexed-100), Sessions (shade extended hours) and Replay (play, pause, step and speed controls above the chart). To make session shading meaningful the Demo gains simulated equities (AAPL, MSFT, SPY) that trade only 04:00–20:00 New York time on weekdays; equities are simulated only because the live feed is crypto. Simulated symbols now use a per-symbol seed so they move differently from each other. Comparison lines load once and do not tick with live trades. Written without a compiler; not yet built or run.

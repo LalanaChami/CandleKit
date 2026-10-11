@@ -4,6 +4,8 @@ Interactive candlestick charts for SwiftUI, built to feel like a native iOS cont
 
 CandleKit gives you momentum scrolling, pinch zoom around your fingers, a long-press crosshair, live updates and infinite history with Apple platform conventions: system colors that adapt to dark mode, haptic feedback, Dynamic Type, and VoiceOver Audio Graphs.
 
+<p align="center"><img src="docs-assets/media/demo-tour.gif" alt="Demo tour: switching timeframe, panning, adding Bollinger bands in Chart Options" width="300"></p>
+
 ```swift
 import CandleKit
 
@@ -146,6 +148,8 @@ indicators = restored.indicators.compactMap { ChartIndicator($0, catalog: myCata
 
 `ChartLayout` stores where you scroll and zoom, not what timeframe or symbol you were looking at — those are your app's own concepts, so store them alongside it (there's an optional `timeframeIdentifier: String?` slot for exactly this, left uninterpreted by CandleKit). Decoding rejects a `schemaVersion` newer than the library understands, and defaults `indicators`/`drawings` to empty when a future version's payload omits them, so old and new versions of your app can each open what the other saved. `CandleChartStyle.priceAxisMaterial` doesn't round-trip — `Material` has no public API to read an arbitrary value back into a named case — so a restored style always has it `nil`; reapply it yourself if you use the glass axis. See the Demo app's Layouts sheet (reachable from the chart-options button) for a complete, working example of saving, loading, renaming, and updating named layouts.
 
+<img src="docs-assets/media/layouts-sheet.png" alt="Layouts sheet" width="260"> <img src="docs-assets/media/chart-options.png" alt="Chart Options sheet" width="260">
+
 ## Price alerts
 
 `priceCrossings(in:levels:)` answers "did the price cross this level," comparing closes between the two most recent candles in your array — nothing more. It's not an alerting system: no notification scheduling, no persisted watchlist, no UI. Wire your own around it:
@@ -178,6 +182,8 @@ Button("Share") {
 
 `ImageRenderer` can't see your view's environment, so pass `colorScheme` if the image should match what the person is looking at. The watermark is off unless you ask for one (`.candleKit`, or `ChartWatermark("yourapp.com")`). The image has the grid, volume, candles, indicators, axes and last-price tag; it leaves out the crosshair, drawings and the header, and draws a frosted price axis as a plain one. See the Demo app's share button on the Market screen.
 
+![Share sheet with the chart image](docs-assets/media/share-sheet.png)
+
 ## Session shading
 
 `.tradingSessions(_:shading:)` tints the plot behind pre-market, after-hours and overnight candles, a common ask for US equities apps. CandleKit doesn't know what market a symbol trades on, so you describe the sessions:
@@ -198,6 +204,8 @@ CandlestickChart(candles)
 
 Only non-regular kinds are drawn; candles outside every listed window stay unshaded. Windows can run past midnight (`20:00` to `04:00`) and are matched against each candle's local time in the session's zone, daylight saving included. Sessions apply to series with an interval of one hour or shorter; on longer intervals nothing is shaded. The regions are worked out once when the data changes, not on every frame. See the "Session shading" card in the Demo's Styles tab, or pick AAPL, MSFT or SPY on the Market screen and use Chart Options → Sessions (those equities are simulated and trade only 04:00–20:00 New York time on weekdays).
 
+<img src="docs-assets/media/session-shading.gif" alt="Session shading toggled on and off for AAPL" width="260">
+
 ## Comparing instruments
 
 `.comparing(_:normalization:)` plots other instruments over the chart so you can see how they moved relative to each other:
@@ -211,6 +219,8 @@ CandlestickChart(appleCandles)
 ```
 
 The price axis switches to percent change from the first candle on screen (or, with `normalization: .indexed100`, an index that starts at 100), and each line starts on the chart's own price where it first has data, so the axis re-bases as you scroll and zoom. A legend in the chart's top-left corner shows each line's value and follows the crosshair. The series don't need the same candle times: each chart candle shows the latest close at or before it, and a series with no recent data shows a break rather than a flat line. The header, VoiceOver summary and drawings still use the chart's own prices, and there is no separate secondary axis yet. See `docs/design/comparison.md`, the Demo's "Comparison" card, or Chart Options → Compare on the Market screen.
+
+<img src="docs-assets/media/comparison.gif" alt="Adding MSFT and SPY as comparison lines" width="260">
 
 ## Replay
 
@@ -229,6 +239,8 @@ replay.step()          // or reveal one more by hand; pause(), end() as you'd ex
 
 While replay is active the chart is given only the first `position` candles; `end()` shows the whole series again. Playback stops by itself at the last candle. Timing comes from a 30 Hz task that carries fractional candles forward, so slow speeds like 0.5 per second stay accurate. Replay only goes forward: calling `begin(at:)` with a smaller number is treated by the chart as a new series, so the viewport resets and the appear animation plays. See the Demo's "Replay" card in the Styles tab, or Chart Options → Replay on the Market screen.
 
+<img src="docs-assets/media/replay.gif" alt="Replay playing candle by candle" width="260">
+
 ## Widgets
 
 The `CandleKitWidgets` product (depends only on `CandleKitCore`) has `WidgetCandleChart`, a non-interactive chart for WidgetKit and other small surfaces:
@@ -241,6 +253,8 @@ WidgetCandleChart(candles, mode: .candles, maxCandles: 40, showsLastPrice: true)
 
 `mode: .line` draws a close line with a soft fill. Long series are reduced with `CandleAggregator.downsample(_:maxCount:)`, so the cost of drawing doesn't grow with the data. There are no axes or gestures; put your own header above it. Your host app supplies the candles through a `TimelineProvider`. See `docs/design/widget.md` and the `CandleKitDemoWidget` target in `Demo/` (run `xcodegen generate` in `Demo/` after pulling).
 
+<img src="docs-assets/media/widget-small.png" alt="Small CandleKit widget on the home screen" width="260">
+
 ## Siri, Shortcuts and Spotlight
 
 CandleKit has no intent type of its own, since intents must live in your app target. `docs/guides/app-intents.md` describes the pattern, including the cold-launch pitfall, and the Demo has a working `ShowChartIntent` with an `AppShortcutsProvider`.
@@ -248,6 +262,10 @@ CandleKit has no intent type of its own, since intents must live in your app tar
 ## Live Activities and small surfaces
 
 `SparklineView` (in `CandleKitWidgets`) draws a price line from plain closing prices, for Live Activities, the Dynamic Island and watchOS. It thins long input to 30 points by default and costs one path to draw. `CandleKitCore` and `CandleKitWidgets` support watchOS 10; the interactive chart stays iOS-only. See `docs/design/live-activity.md` and the Demo's "Live Activity" card.
+
+<p><img src="docs-assets/media/live-activity-compact.png" width="200"> <img src="docs-assets/media/live-activity-expanded.png" width="200"> <img src="docs-assets/media/live-activity-lockscreen.png" width="200"></p>
+
+Compact and expanded Dynamic Island, and the Lock Screen banner (the Lock Screen capture shows the system's Live Activities permission prompt).
 
 ## Customization
 

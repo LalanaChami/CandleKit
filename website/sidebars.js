@@ -12,6 +12,9 @@ const sidebars = {
         'guides/drawing-tools',
         'guides/styling',
         'guides/gestures-and-crosshair',
+        'guides/comparison-and-sessions',
+        'guides/replay',
+        'guides/widgets-and-live-activities',
       ],
     },
     {
