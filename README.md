@@ -229,6 +229,18 @@ replay.step()          // or reveal one more by hand; pause(), end() as you'd ex
 
 While replay is active the chart is given only the first `position` candles; `end()` shows the whole series again. Playback stops by itself at the last candle. Timing comes from a 30 Hz task that carries fractional candles forward, so slow speeds like 0.5 per second stay accurate. Replay only goes forward: calling `begin(at:)` with a smaller number is treated by the chart as a new series, so the viewport resets and the appear animation plays. See the Demo's "Replay" card in the Styles tab.
 
+## Widgets
+
+The `CandleKitWidgets` product (depends only on `CandleKitCore`) has `WidgetCandleChart`, a non-interactive chart for WidgetKit and other small surfaces:
+
+```swift
+import CandleKitWidgets
+
+WidgetCandleChart(candles, mode: .candles, maxCandles: 40, showsLastPrice: true)
+```
+
+`mode: .line` draws a close line with a soft fill. Long series are reduced with `CandleAggregator.downsample(_:maxCount:)`, so the cost of drawing doesn't grow with the data. There are no axes or gestures; put your own header above it. Your host app supplies the candles through a `TimelineProvider`. See `docs/design/widget.md` and the `CandleKitDemoWidget` target in `Demo/` (run `xcodegen generate` in `Demo/` after pulling).
+
 ## Customization
 
 | Modifier | Purpose |

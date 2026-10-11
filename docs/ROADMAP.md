@@ -595,11 +595,15 @@ This is the phase that actually answers "why CandleKit over TradingView." Each o
 impossible or seriously degraded in a `WKWebView`-hosted chart, and cheap for a SwiftUI-native chart
 because the platform already does most of the work.
 
-- [ ] **8.1 Home screen widget.** (design first) A small `WidgetKit` target rendering a
+- [~] **8.1 Home screen widget.** (design first) A small `WidgetKit` target rendering a
       `CandlestickChart` (or a purpose-built lightweight variant — a widget's render budget is not
       the same as a full-screen chart's) at small/medium/large sizes. The host app supplies the
       candle data via `TimelineProvider`; CandleKit's job is making the chart itself render cleanly
       at widget scale (no crosshair, no gestures, careful with the medium-size aspect ratio).
+      Shipped as the purpose-built variant: `WidgetCandleChart` in a new `CandleKitWidgets` product
+      plus `CandleAggregator.downsample` in Core; design in `docs/design/widget.md`. The demo widget
+      target is in `Demo/project.yml`. Not yet built or seen in the widget gallery; `swift test` for
+      the aggregator tests not run.
 - [ ] **8.2 Live Activity / Dynamic Island.** A ticking price plus a tiny sparkline for a watched
       symbol during market hours, or for the duration of a simulated "open position." Needs a
       genuinely minimal rendering path — a Live Activity's update budget and process lifetime are

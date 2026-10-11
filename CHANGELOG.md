@@ -6,6 +6,10 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added — Home-screen widget chart (roadmap 8.1)
+
+New `CandleKitWidgets` product with `WidgetCandleChart` (candles or line, `Shape`-based, no gestures) and `CandleAggregator.downsample(_:maxCount:)` in CandleKitCore to bound draw cost. The Demo gains a `CandleKitDemoWidget` extension target (small/medium/large, simulated BTC data), declared in `Demo/project.yml`; run `xcodegen generate` to pick it up. Design notes in `docs/design/widget.md`. Not built or run yet: no Swift toolchain was available where this was written.
+
 ### Added — Replay mode (roadmap 9.4)
 
 `ReplayController` (`@MainActor @Observable`) and `CandlestickChart.replay(_:)` play a loaded series back candle by candle: `begin(at:)`, `play()`, `pause()`, `step(_:)`, `end()`, adjustable `candlesPerSecond`, auto-stop at the last candle. The pure timing code (`ReplayClock`, `ReplayMath`) lives in CandleKitCore with tests. Deviation from the roadmap sketch: not a `CandleChartState` method, since the state doesn't own the data. The Demo's Styles tab has a Replay card. Exercised in the iOS Simulator; the new Core tests have not been run (no Swift toolchain where they were written).

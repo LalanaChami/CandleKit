@@ -26,6 +26,8 @@ targets:
     dependencies:
       - package: CandleKit
         product: CandleKit
+      - target: CandleKitDemoWidget
+        embed: true
     settings:
       base:
         PRODUCT_NAME: CandleKitDemo
@@ -36,3 +38,23 @@ targets:
         CODE_SIGN_STYLE: Automatic
         ENABLE_PREVIEWS: YES
     scheme: {}
+
+  # Home-screen widget built on the CandleKitWidgets product (roadmap 8.1).
+  CandleKitDemoWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: CandleKitDemoWidget
+    dependencies:
+      - package: CandleKit
+        product: CandleKitWidgets
+      - package: CandleKit
+        product: CandleKitCore
+    settings:
+      base:
+        PRODUCT_NAME: CandleKitDemoWidget
+        PRODUCT_BUNDLE_IDENTIFIER: com.lalanachami.CandleKitDemo.Widget
+        INFOPLIST_FILE: Support/WidgetInfo.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: YES

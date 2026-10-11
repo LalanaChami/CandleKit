@@ -12,6 +12,8 @@ let package = Package(
     products: [
         .library(name: "CandleKit", targets: ["CandleKit"]),
         .library(name: "CandleKitCore", targets: ["CandleKitCore"]),
+        // Lightweight chart for WidgetKit and similar surfaces; depends on the core only.
+        .library(name: "CandleKitWidgets", targets: ["CandleKitWidgets"]),
     ],
     targets: [
         // Pure Foundation: viewport math, scales, indicators, series diffing.
@@ -19,6 +21,7 @@ let package = Package(
         .target(name: "CandleKitCore"),
         // SwiftUI + UIKit rendering and gestures.
         .target(name: "CandleKit", dependencies: ["CandleKitCore"]),
+        .target(name: "CandleKitWidgets", dependencies: ["CandleKitCore"]),
         .testTarget(name: "CandleKitCoreTests", dependencies: ["CandleKitCore"]),
     ]
 )
