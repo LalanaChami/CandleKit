@@ -18,14 +18,32 @@ struct SimulatedMarketData: MarketDataSource {
         }
         let start = newest.addingTimeInterval(-interval * Double(Self.batchSize - 1))
 
-        let walk = CandleSampleData.randomWalk(
-            count: Self.batchSize,
-            start: start,
-            interval: interval,
-            startPrice: request.product.simulatedPrice,
-            volatility: min(0.03, 0.0015 * (interval / 60).squareRoot()),
-            seed: UInt64(max(0, start.timeIntervalSince1970)) &+ UInt64(request.timeframe.rawValue)
-        )
+        // A per-symbol seed so each simulated symbol moves differently (comparison needs that).
+        let symbolSeed = request.product.id.unicodeScalars.reduce(UInt64(7)) { $0 &* 31 &+ UInt64($1.value) }
+
+        var walk: [Candle]
+        if request.product.isEquity {
+            // Only candles inside trading hours, so sessions and gaps look real.
+            let times = DemoTradingCalendar.tradingTimes(endingAtOrBefore: newest, interval: interval, count: Self.batchSize)
+            walk = CandleSampleData.randomWalk(
+                count: times.count,
+                start: times.first ?? newest,
+                interval: interval,
+                startPrice: request.product.simulatedPrice,
+                volatility: min(0.02, 0.0008 * (interval / 60).squareRoot()),
+                seed: UInt64(max(0, newest.timeIntervalSince1970)) &+ UInt64(request.timeframe.rawValue) &+ symbolSeed
+            )
+            for index in walk.indices { walk[index].time = times[index] }
+        } else {
+            walk = CandleSampleData.randomWalk(
+                count: Self.batchSize,
+                start: start,
+                interval: interval,
+                startPrice: request.product.simulatedPrice,
+                volatility: min(0.03, 0.0015 * (interval / 60).squareRoot()),
+                seed: UInt64(max(0, start.timeIntervalSince1970)) &+ UInt64(request.timeframe.rawValue) &+ symbolSeed
+            )
+        }
 
         // Scale older batches so they end where the loaded candles begin.
         guard let anchor = request.anchorPrice, let lastClose = walk.last?.close, lastClose > 0 else { return walk }
@@ -43,7 +61,18 @@ struct SimulatedMarketData: MarketDataSource {
     }
 
     func liveTrades(for product: Product, startingAt price: Double) -> AsyncThrowingStream<Trade, Error> {
-        AsyncThrowingStream { continuation in
+        if product.isEquity {
+            // Simulated equities replay a fixed history; ticking "now" into them would put candles
+            // outside trading hours. The stream just stays open.
+            return AsyncThrowingStream { continuation in
+                let task = Task {
+                    while !Task.isCancelled { try? await Task.sleep(for: .seconds(3_600)) }
+                    continuation.finish()
+                }
+                continuation.onTermination = { _ in task.cancel() }
+            }
+        }
+        return AsyncThrowingStream { continuation in
             let task = Task {
                 var lastPrice = price
                 while !Task.isCancelled {

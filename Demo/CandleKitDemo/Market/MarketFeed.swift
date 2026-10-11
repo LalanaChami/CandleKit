@@ -8,6 +8,9 @@ struct FeedConfiguration: Hashable, Sendable {
     var timeframe: Timeframe
     /// Bumped to retry after a failure.
     var attempt = 0
+
+    /// Equities only exist as simulated data, whatever the picker says.
+    var effectiveSource: DataSourceKind { product.isEquity ? .simulated : source }
 }
 
 /// Loads candles, keeps the newest one updated from live trades, and pages in history on request.
@@ -61,7 +64,7 @@ final class MarketFeed {
         isLoadingHistory = false
         reachedOldestAvailable = false
 
-        let source = configuration.source.dataSource
+        let source = configuration.effectiveSource.dataSource
         let request = HistoryRequest(product: configuration.product, timeframe: configuration.timeframe, end: nil, anchorPrice: nil)
         do {
             let initial = try await source.history(for: request)
@@ -111,7 +114,7 @@ final class MarketFeed {
             )
             let result: Result<[Candle], Error>
             do {
-                result = .success(try await configuration.source.dataSource.history(for: request))
+                result = .success(try await configuration.effectiveSource.dataSource.history(for: request))
             } catch {
                 result = .failure(error)
             }

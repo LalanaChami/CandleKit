@@ -196,7 +196,7 @@ CandlestickChart(candles)
     ], shading: SessionShadingStyle())
 ```
 
-Only non-regular kinds are drawn; candles outside every listed window stay unshaded. Windows can run past midnight (`20:00` to `04:00`) and are matched against each candle's local time in the session's zone, daylight saving included. Sessions apply to series with an interval of one hour or shorter; on longer intervals nothing is shaded. The regions are worked out once when the data changes, not on every frame. See the "Session shading" card in the Demo's Styles tab.
+Only non-regular kinds are drawn; candles outside every listed window stay unshaded. Windows can run past midnight (`20:00` to `04:00`) and are matched against each candle's local time in the session's zone, daylight saving included. Sessions apply to series with an interval of one hour or shorter; on longer intervals nothing is shaded. The regions are worked out once when the data changes, not on every frame. See the "Session shading" card in the Demo's Styles tab, or pick AAPL, MSFT or SPY on the Market screen and use Chart Options → Sessions (those equities are simulated and trade only 04:00–20:00 New York time on weekdays).
 
 ## Comparing instruments
 
@@ -210,7 +210,7 @@ CandlestickChart(appleCandles)
     ])
 ```
 
-The price axis switches to percent change from the first candle on screen (or, with `normalization: .indexed100`, an index that starts at 100), and each line starts on the chart's own price where it first has data, so the axis re-bases as you scroll and zoom. A legend in the chart's top-left corner shows each line's value and follows the crosshair. The series don't need the same candle times: each chart candle shows the latest close at or before it, and a series with no recent data shows a break rather than a flat line. The header, VoiceOver summary and drawings still use the chart's own prices, and there is no separate secondary axis yet. See `docs/design/comparison.md` and the Demo's "Comparison" card.
+The price axis switches to percent change from the first candle on screen (or, with `normalization: .indexed100`, an index that starts at 100), and each line starts on the chart's own price where it first has data, so the axis re-bases as you scroll and zoom. A legend in the chart's top-left corner shows each line's value and follows the crosshair. The series don't need the same candle times: each chart candle shows the latest close at or before it, and a series with no recent data shows a break rather than a flat line. The header, VoiceOver summary and drawings still use the chart's own prices, and there is no separate secondary axis yet. See `docs/design/comparison.md`, the Demo's "Comparison" card, or Chart Options → Compare on the Market screen.
 
 ## Replay
 
@@ -227,7 +227,7 @@ replay.play()          // reveal 2 per second (set replay.candlesPerSecond)
 replay.step()          // or reveal one more by hand; pause(), end() as you'd expect
 ```
 
-While replay is active the chart is given only the first `position` candles; `end()` shows the whole series again. Playback stops by itself at the last candle. Timing comes from a 30 Hz task that carries fractional candles forward, so slow speeds like 0.5 per second stay accurate. Replay only goes forward: calling `begin(at:)` with a smaller number is treated by the chart as a new series, so the viewport resets and the appear animation plays. See the Demo's "Replay" card in the Styles tab.
+While replay is active the chart is given only the first `position` candles; `end()` shows the whole series again. Playback stops by itself at the last candle. Timing comes from a 30 Hz task that carries fractional candles forward, so slow speeds like 0.5 per second stay accurate. Replay only goes forward: calling `begin(at:)` with a smaller number is treated by the chart as a new series, so the viewport resets and the appear animation plays. See the Demo's "Replay" card in the Styles tab, or Chart Options → Replay on the Market screen.
 
 ## Widgets
 

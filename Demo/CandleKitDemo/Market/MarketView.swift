@@ -76,6 +76,11 @@ struct MarketView: View {
     @State private var savedLayouts: [SavedLayout] = DemoLayoutStorage.loadAll()
     @State private var showingLayoutsSheet = false
     @State private var showingChartOptions = false
+
+    // Chart Options features (roadmap 7.6 comparison, 9.1 session shading, 9.4 replay).
+    @State private var comparison = ComparisonModel()
+    @State private var replay = ReplayController()
+    @State private var showsSessions = false
     @State private var pendingSaveName = ""
     @State private var showingSaveNamePrompt = false
     @State private var toast: Toast?
@@ -116,7 +121,7 @@ struct MarketView: View {
                 // both are drawn by the system with their own fill, not ours. Owning the row
                 // outright means it always matches the screen's actual background, on every OS.
                 HStack(spacing: 10) {
-                    FeedStatusBadge(status: feed.status, source: source)
+                    FeedStatusBadge(status: feed.status, source: configuration.effectiveSource)
 
                     Spacer(minLength: 8)
 
@@ -161,6 +166,11 @@ struct MarketView: View {
                     Spacer(minLength: 0)
                 }
 
+                if replay.isActive {
+                    ReplayBar(replay: replay, feed: feed)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
                 // See the comment on this type below for why `feed.candles` (which changes on
                 // every live trade) is isolated to its own `View` instead of read directly here.
                 MarketChartSection(
@@ -176,7 +186,11 @@ struct MarketView: View {
                     drawings: $drawings,
                     activeDrawingTool: $activeDrawingTool,
                     selectedDrawingID: $selectedDrawingID,
-                    drawingColor: drawingColor
+                    drawingColor: drawingColor,
+                    replay: replay,
+                    comparisonSeries: comparison.series,
+                    comparisonNormalization: comparison.normalization,
+                    sessions: sessionsAvailable && showsSessions ? TradingSession.usEquities : []
                 )
                 .frame(maxHeight: .infinity)
 
@@ -201,9 +215,23 @@ struct MarketView: View {
                 }
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.8), value: toast)
+            .animation(.snappy, value: replay.isActive)
         }
         .task(id: configuration) {
             await feed.run(configuration)
+        }
+        // Reload comparison lines when the symbol, timeframe, source or selection changes.
+        .task(id: ComparisonTrigger(configuration: configuration, selected: comparison.selected)) {
+            comparison.reload(for: configuration)
+        }
+        // A replay belongs to one series; changing symbol or timeframe ends it.
+        .onChange(of: configuration) { _, _ in
+            replay.end()
+        }
+        // Showing the shading is the natural default for an equity, and off for crypto.
+        .onChange(of: product) { _, newProduct in
+            showsSessions = newProduct.isEquity
+            comparison.selected = []
         }
         // App Intents (roadmap 8.4): apply a "show chart" request left by `ShowChartIntent`. `initial: true`
         // covers a cold launch, where the request exists before this view does.
@@ -248,6 +276,13 @@ struct MarketView: View {
                 showsRSI: $showsRSI,
                 showsMACD: $showsMACD,
                 chartState: chartState,
+                comparison: comparison,
+                showsSessions: $showsSessions,
+                sessionsAvailable: sessionsAvailable,
+                replayActive: replay.isActive,
+                canReplay: feed.status == .streaming,
+                onStartReplay: { startReplay() },
+                onExitReplay: { replay.end() },
                 savedLayoutCount: savedLayouts.count,
                 onOpenLayouts: { showingLayoutsSheet = true }
             )
@@ -262,6 +297,19 @@ struct MarketView: View {
     }
 
     // MARK: Save/Load layout (roadmap 7.3), now as named, multi-slot presets
+
+    /// Session shading means something only for an equity on an intraday timeframe; the library ignores
+    /// it on longer intervals, so the option is disabled there instead of silently doing nothing.
+    private var sessionsAvailable: Bool {
+        product.isEquity && timeframe.rawValue <= Timeframe.oneHour.rawValue
+    }
+
+    /// Starts a replay from the middle of the loaded series, paused.
+    private func startReplay() {
+        let count = feed.candles.count
+        guard count >= 10 else { return }
+        replay.begin(at: max(count / 2, 10))
+    }
 
     private func defaultLayoutName() -> String {
         "\(product.name) \(timeframe.label)"
@@ -381,6 +429,11 @@ private struct MarketChartSection: View {
     @Binding var activeDrawingTool: DrawingTool?
     @Binding var selectedDrawingID: UUID?
     let drawingColor: DrawingColor
+    let replay: ReplayController
+    let comparisonSeries: [ComparisonSeries]
+    let comparisonNormalization: ComparisonNormalization
+    /// Empty means no shading.
+    let sessions: [TradingSession]
 
     /// The alert banner's content, or `nil` when nothing has fired recently. Carries direction so
     /// the banner can color and haptic itself accordingly, instead of always reading as a flat
@@ -459,6 +512,9 @@ private struct MarketChartSection: View {
     @ViewBuilder
     private var realChart: some View {
         CandlestickChart(feed.candles, state: chartState)
+            .tradingSessions(sessions)
+            .comparing(comparisonSeries, normalization: comparisonNormalization)
+            .replay(replay)
             // Frosted price axis with candles peeking through as they scroll underneath — opted in
             // explicitly here since the library default keeps the classic opaque axis unchanged.
             // App-owned state, not a constant, so Save/Load Layout has something to restore.
@@ -908,6 +964,13 @@ private struct ChartOptionsSheet: View {
     @Binding var showsRSI: Bool
     @Binding var showsMACD: Bool
     let chartState: CandleChartState
+    @Bindable var comparison: ComparisonModel
+    @Binding var showsSessions: Bool
+    let sessionsAvailable: Bool
+    let replayActive: Bool
+    let canReplay: Bool
+    let onStartReplay: () -> Void
+    let onExitReplay: () -> Void
     let savedLayoutCount: Int
     let onOpenLayouts: () -> Void
 
@@ -932,6 +995,15 @@ private struct ChartOptionsSheet: View {
 
                     sectionLabel("Panes")
                     chipGrid(paneChips)
+
+                    sectionLabel("Compare")
+                    compareCard
+
+                    sectionLabel("Sessions")
+                    sessionsCard
+
+                    sectionLabel("Replay")
+                    replayCard
 
                     resetZoomButton
                 }
@@ -964,6 +1036,92 @@ private struct ChartOptionsSheet: View {
             Chip(id: "rsi", title: "RSI 14", systemImage: "gauge.with.dots.needle.50percent", binding: $showsRSI),
             Chip(id: "macd", title: "MACD", systemImage: "waveform", binding: $showsMACD),
         ]
+    }
+
+    private var compareCard: some View {
+        let candidates = ComparisonModel.candidates(for: product)
+        return VStack(alignment: .leading, spacing: 12) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 10)], spacing: 10) {
+                ForEach(candidates) { candidate in
+                    let isOn = comparison.selected.contains(candidate.id)
+                    Button {
+                        Haptics.selection()
+                        comparison.toggle(candidate)
+                    } label: {
+                        Text(candidate.id)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(isOn ? .white : .primary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background {
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(isOn ? AnyShapeStyle(Color.accentColor.gradient) : AnyShapeStyle(.thinMaterial))
+                            }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            if !comparison.selected.isEmpty {
+                Picker("Scale", selection: $comparison.normalization) {
+                    Text("% change").tag(ComparisonNormalization.percentChange)
+                    Text("Indexed 100").tag(ComparisonNormalization.indexed100)
+                }
+                .pickerStyle(.segmented)
+            }
+            Text("Up to three symbols of the same kind, drawn as lines over the chart on a shared percent axis. The lines load once and don't tick with live trades.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var sessionsCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $showsSessions) {
+                Label("Shade extended hours", systemImage: "moon.stars")
+                    .font(.subheadline.weight(.medium))
+            }
+            .disabled(!sessionsAvailable)
+            Text(sessionsAvailable
+                 ? "Pre-market and after-hours are tinted (US equities, New York time)."
+                 : "Pick an equity (AAPL, MSFT or SPY) with a 1h or shorter timeframe. Crypto trades around the clock, so there are no sessions to shade.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var replayCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if replayActive {
+                Button(role: .destructive) {
+                    Haptics.tap()
+                    onExitReplay()
+                } label: {
+                    Label("Exit replay", systemImage: "stop.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Button {
+                    Haptics.tap()
+                    dismiss()
+                    onStartReplay()
+                } label: {
+                    Label("Start replay", systemImage: "play.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(!canReplay)
+            }
+            Text("Hides the second half of the loaded candles, then reveals them one at a time. Controls appear above the chart.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func sectionLabel(_ title: String) -> some View {
@@ -1297,4 +1455,62 @@ struct FeedStatusBadge: View {
 
 #Preview {
     MarketView()
+}
+
+/// Changes to any of these mean the comparison lines need reloading.
+private struct ComparisonTrigger: Hashable {
+    let configuration: FeedConfiguration
+    let selected: Set<String>
+}
+
+/// Controls for a running replay. Reads `feed.candles.count` here, in its own view, so a live tick
+/// doesn't re-evaluate the whole Market screen.
+private struct ReplayBar: View {
+    @Bindable var replay: ReplayController
+    let feed: MarketFeed
+
+    private let speeds: [Double] = [1, 2, 5, 10]
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button {
+                Haptics.tap()
+                replay.isPlaying ? replay.pause() : replay.play()
+            } label: {
+                Image(systemName: replay.isPlaying ? "pause.fill" : "play.fill")
+                    .frame(width: 32, height: 32)
+                    .background(.thinMaterial, in: Circle())
+            }
+            .disabled(replay.isAtEnd)
+            .accessibilityLabel(replay.isPlaying ? "Pause replay" : "Play replay")
+
+            Button {
+                Haptics.selection()
+                replay.step()
+            } label: {
+                Image(systemName: "forward.frame.fill")
+                    .frame(width: 32, height: 32)
+                    .background(.thinMaterial, in: Circle())
+            }
+            .disabled(replay.isPlaying || replay.isAtEnd)
+            .accessibilityLabel("Step one candle")
+
+            Picker("Speed", selection: $replay.candlesPerSecond) {
+                ForEach(speeds, id: \.self) { Text("\(Int($0))/s").tag($0) }
+            }
+            .pickerStyle(.segmented)
+
+            Text("\(replay.position) of \(feed.candles.count)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            Button("Exit") {
+                Haptics.tap()
+                replay.end()
+            }
+            .font(.caption.weight(.semibold))
+        }
+        .font(.body)
+        .foregroundStyle(.primary)
+    }
 }

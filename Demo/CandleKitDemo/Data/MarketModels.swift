@@ -7,12 +7,19 @@ struct Product: Hashable, Identifiable, Sendable {
     let name: String
     /// Where simulated prices start.
     let simulatedPrice: Double
+    /// Equities trade in sessions (pre-market, regular, after-hours) and are only available as
+    /// simulated data here; the live Coinbase feed has crypto only.
+    var isEquity: Bool = false
 
     static let bitcoin = Product(id: "BTC-USD", name: "Bitcoin", simulatedPrice: 64_000)
     static let ether = Product(id: "ETH-USD", name: "Ether", simulatedPrice: 3_200)
     static let solana = Product(id: "SOL-USD", name: "Solana", simulatedPrice: 150)
 
-    static let all: [Product] = [.bitcoin, .ether, .solana]
+    static let apple = Product(id: "AAPL", name: "Apple", simulatedPrice: 230, isEquity: true)
+    static let microsoft = Product(id: "MSFT", name: "Microsoft", simulatedPrice: 420, isEquity: true)
+    static let spy = Product(id: "SPY", name: "S&P 500 ETF", simulatedPrice: 560, isEquity: true)
+
+    static let all: [Product] = [.bitcoin, .ether, .solana, .apple, .microsoft, .spy]
 }
 
 /// Raw values are seconds, matching the granularities the Coinbase candles endpoint accepts.

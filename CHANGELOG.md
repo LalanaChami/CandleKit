@@ -6,6 +6,10 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Changed — Demo: comparison, session shading and replay in Chart Options
+
+The Market screen's Chart Options sheet now has Compare (up to three symbols of the same kind, percent or indexed-100), Sessions (shade extended hours) and Replay (play, pause, step and speed controls above the chart). To make session shading meaningful the Demo gains simulated equities (AAPL, MSFT, SPY) that trade only 04:00–20:00 New York time on weekdays; equities are simulated only because the live feed is crypto. Simulated symbols now use a per-symbol seed so they move differently from each other. Comparison lines load once and do not tick with live trades. Written without a compiler; not yet built or run.
+
 ### Added — Live Activity sparkline and watchOS support for the widget product (roadmap 8.2, 8.3)
 
 `SparklineView` in `CandleKitWidgets` and `SparklineSampling` in CandleKitCore (with tests). `CandleKitCore` and `CandleKitWidgets` now declare watchOS 10, and CI builds `CandleKitWidgets` for the watchOS Simulator. The Demo gets a Live Activity (`PriceLiveActivity`, a Styles-tab card to start and end it) sharing `PriceActivityAttributes` between the app and the widget extension. `docs/design/visionos.md` records the 8.6 questions; no visionOS code yet. Written without a compiler; not yet built or run.
