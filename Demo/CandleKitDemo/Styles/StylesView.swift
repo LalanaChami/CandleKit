@@ -66,6 +66,7 @@ struct StylesView: View {
                             comparison: example.compares ? Self.comparisonSeries : []
                         )
                     }
+                    ReplayCard(candles: Self.candles)
                 }
                 .padding()
             }
@@ -181,6 +182,67 @@ private struct StyleExampleCard: View {
                 .frame(height: example.height)
 
             Text(example.code)
+                .font(.caption.monospaced())
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+}
+
+/// Plays the daily series back one candle at a time with `ReplayController` (roadmap 9.4).
+private struct ReplayCard: View {
+    let candles: [Candle]
+    @State private var replay = ReplayController()
+    @State private var speed = 2.0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Replay")
+                .font(.headline)
+            Text("Reveal the series one candle at a time, as if it were happening now. Start, then play, pause or step.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            CandlestickChart(candles)
+                .headerVisible(false)
+                .replay(replay)
+                .frame(height: 260)
+
+            HStack(spacing: 8) {
+                Button(replay.isActive ? "Restart" : "Start") {
+                    replay.begin(at: 60)
+                    replay.play()
+                }
+                .buttonStyle(.borderedProminent)
+                Button(replay.isPlaying ? "Pause" : "Play") {
+                    if replay.isPlaying { replay.pause() } else { replay.play() }
+                }
+                .disabled(!replay.isActive || replay.isAtEnd)
+                Button("Step") { replay.step() }
+                    .disabled(!replay.isActive || replay.isAtEnd)
+                Button("End") { replay.end() }
+                    .disabled(!replay.isActive)
+            }
+            .buttonStyle(.bordered)
+
+            HStack {
+                Picker("Speed", selection: $speed) {
+                    Text("1/s").tag(1.0)
+                    Text("2/s").tag(2.0)
+                    Text("5/s").tag(5.0)
+                    Text("10/s").tag(10.0)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: speed) { _, newValue in replay.candlesPerSecond = newValue }
+            }
+
+            Text(replay.isActive ? "Candle \(min(replay.position, candles.count)) of \(candles.count)" : "Not replaying")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            Text("let replay = ReplayController()\n\nCandlestickChart(candles)\n    .replay(replay)\n\nreplay.begin(at: 60)\nreplay.play()")
                 .font(.caption.monospaced())
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -28,6 +28,7 @@ public struct CandlestickChart: View {
     private var sessions: [TradingSession] = []
     private var sessionShading = SessionShadingStyle()
     private var comparisonSeries: [ComparisonSeries] = []
+    private var replayController: ReplayController?
     private var comparisonNormalization = ComparisonNormalization.percentChange
     private var fractionDigits: Int?
     private var crosshairHandler: ((Candle?) -> Void)?
@@ -47,6 +48,15 @@ public struct CandlestickChart: View {
         self.externalState = state
     }
 
+    /// The series to draw: all of it, or the replayed prefix. Reads the controller's observed
+    /// properties, so the chart redraws when a replay steps.
+    private func displayedCandles() -> [Candle] {
+        guard let replayController, replayController.isActive else { return candles }
+        replayController.attach(totalCount: candles.count)
+        let visible = replayController.visibleCount(of: candles.count)
+        return visible >= candles.count ? candles : Array(candles.prefix(visible))
+    }
+
     // Deliberately does NOT read `state.revision`.
     //
     // It used to, which meant a single `revision` bump — one per animation frame during a pan,
@@ -59,6 +69,10 @@ public struct CandlestickChart: View {
     // redraw per frame. Everything here re-evaluates only when its own inputs change.
     public var body: some View {
         let state = externalState ?? internalState
+        // During a replay only the first `position` candles exist as far as the chart is concerned.
+        // Shadows the stored property for the rest of the body, so everything below (header,
+        // content layer, price badge) sees the same truncated series. One array copy per step.
+        let candles = displayedCandles()
         let _ = state.setHandlers(crosshair: crosshairHandler, oldestCandle: oldestCandleHandler)
         let headerDigits = fractionDigits ?? PriceScale.suggestedFractionDigits(forPrice: candles.last?.close ?? 0)
         // Only mutates @ObservationIgnored properties (see `DrawingController.attach`), so — like
@@ -514,6 +528,17 @@ extension CandlestickChart {
         var copy = self
         copy.comparisonSeries = series
         copy.comparisonNormalization = normalization
+        return copy
+    }
+
+    /// Lets a ``ReplayController`` play the series back candle by candle: while the controller is
+    /// active the chart shows only the candles it has revealed so far.
+    ///
+    /// The chart follows the newest revealed candle as it appears, like live data. Going back to an
+    /// earlier position (``ReplayController/begin(at:)``) is treated as a new series.
+    public func replay(_ controller: ReplayController) -> CandlestickChart {
+        var copy = self
+        copy.replayController = controller
         return copy
     }
 
