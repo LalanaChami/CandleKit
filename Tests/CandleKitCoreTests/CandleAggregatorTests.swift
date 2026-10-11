@@ -6,28 +6,33 @@ import Testing
 struct CandleAggregatorTests {
     /// Candle i: time i seconds, open 10+i, high 20+(i*2%7), low 5-(i%3), close 11+i, volume 100+i.
     private func series(_ n: Int) -> [Candle] {
-        (0..<n).map { i in
-            Candle(time: Date(timeIntervalSince1970: Double(i)), open: Double(10 + i),
-                   high: Double(20 + (i * 2) % 7), low: Double(5 - i % 3),
-                   close: Double(11 + i), volume: Double(100 + i))
+        var result: [Candle] = []
+        for i in 0..<n {
+            let time = Date(timeIntervalSince1970: TimeInterval(i))
+            let open = Double(10 + i)
+            let high = Double(20 + (i * 2) % 7)
+            let low = Double(5 - i % 3)
+            let close = Double(11 + i)
+            let volume = Double(100 + i)
+            result.append(Candle(time: time, open: open, high: high, low: low, close: close, volume: volume))
         }
+        return result
     }
 
     @Test func mergesTenCandlesIntoFourBuckets() {
         let out = CandleAggregator.downsample(series(10), maxCount: 4)
-        // (first index, open, high, low, close, volume), checked with an independent script.
-        let expected: [(Double, Double, Double, Double, Double, Double)] = [
-            (0, 10, 22, 4, 12, 201), (2, 12, 26, 3, 15, 309),
-            (5, 15, 25, 3, 17, 211), (7, 17, 24, 3, 20, 324),
+        // Per bucket: first index, open, high, low, close, volume (independent script).
+        let expected: [[Double]] = [
+            [0, 10, 22, 4, 12, 201],
+            [2, 12, 26, 3, 15, 309],
+            [5, 15, 25, 3, 17, 211],
+            [7, 17, 24, 3, 20, 324],
         ]
         #expect(out.count == 4)
         for (candle, e) in zip(out, expected) {
-            #expect(candle.time.timeIntervalSince1970 == e.0)
-            #expect(candle.open == e.1)
-            #expect(candle.high == e.2)
-            #expect(candle.low == e.3)
-            #expect(candle.close == e.4)
-            #expect(candle.volume == e.5)
+            let actual: [Double] = [candle.time.timeIntervalSince1970, candle.open, candle.high,
+                                    candle.low, candle.close, candle.volume]
+            #expect(actual == e)
         }
     }
 
