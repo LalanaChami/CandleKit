@@ -674,11 +674,16 @@ Phase 8, none of these need a platform a WebView can't reach — they're just mi
       place" data contract; call it again after every update, not just once. Demoed in
       `Demo/CandleKitDemo/Market/MarketView.swift`'s price-alert control (the bell in the floating
       tool dock beneath the chart, not a permanent text row as originally demoed).
-- [ ] **9.4 Replay mode.** Step or auto-play through a loaded series candle-by-candle at an
+- [~] **9.4 Replay mode.** Step or auto-play through a loaded series candle-by-candle at an
       adjustable speed — genuinely popular for backtesting and teaching technical analysis, and
       cheap to build: it's a `Viewport` that advances on a timer rather than a finger, reusing the
       exact eased-scroll machinery 4.1 and the spring animations already build. `CandleChartState`
       gains a `play(candlesPerSecond:)` / `pause()` pair; the renderer doesn't change at all.
+      Shipped as a separate `ReplayController` plus a `.replay(_:)` modifier instead, because
+      `CandleChartState` doesn't own the data. Timing logic (`ReplayClock`, `ReplayMath`) is in
+      Core with tests. Limits: step is forward-only, and going backwards is seen by the chart as a
+      replaced series (viewport reset, appear animation). Checked in the iOS Simulator (start, play,
+      pause, step, speed, end of series, restart); `swift test` for the Core tests not yet run.
 
 ### Phase 10: Developer experience and ecosystem
 

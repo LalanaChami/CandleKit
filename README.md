@@ -212,6 +212,23 @@ CandlestickChart(appleCandles)
 
 The price axis switches to percent change from the first candle on screen (or, with `normalization: .indexed100`, an index that starts at 100), and each line starts on the chart's own price where it first has data, so the axis re-bases as you scroll and zoom. A legend in the chart's top-left corner shows each line's value and follows the crosshair. The series don't need the same candle times: each chart candle shows the latest close at or before it, and a series with no recent data shows a break rather than a flat line. The header, VoiceOver summary and drawings still use the chart's own prices, and there is no separate secondary axis yet. See `docs/design/comparison.md` and the Demo's "Comparison" card.
 
+## Replay
+
+`ReplayController` plays a loaded series back one candle at a time, for teaching and backtesting:
+
+```swift
+@State private var replay = ReplayController()
+
+CandlestickChart(candles)
+    .replay(replay)
+
+replay.begin(at: 60)   // show the first 60 candles
+replay.play()          // reveal 2 per second (set replay.candlesPerSecond)
+replay.step()          // or reveal one more by hand; pause(), end() as you'd expect
+```
+
+While replay is active the chart is given only the first `position` candles; `end()` shows the whole series again. Playback stops by itself at the last candle. Timing comes from a 30 Hz task that carries fractional candles forward, so slow speeds like 0.5 per second stay accurate. Replay only goes forward: calling `begin(at:)` with a smaller number is treated by the chart as a new series, so the viewport resets and the appear animation plays. See the Demo's "Replay" card in the Styles tab.
+
 ## Customization
 
 | Modifier | Purpose |

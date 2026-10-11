@@ -6,6 +6,10 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added — Replay mode (roadmap 9.4)
+
+`ReplayController` (`@MainActor @Observable`) and `CandlestickChart.replay(_:)` play a loaded series back candle by candle: `begin(at:)`, `play()`, `pause()`, `step(_:)`, `end()`, adjustable `candlesPerSecond`, auto-stop at the last candle. The pure timing code (`ReplayClock`, `ReplayMath`) lives in CandleKitCore with tests. Deviation from the roadmap sketch: not a `CandleChartState` method, since the state doesn't own the data. The Demo's Styles tab has a Replay card. Exercised in the iOS Simulator; the new Core tests have not been run (no Swift toolchain where they were written).
+
 ### Added — Share chart as image (roadmap 8.5)
 
 `CandleChartState.snapshot(scale:colorScheme:watermark:)` returns a `UIImage` of the chart as it
