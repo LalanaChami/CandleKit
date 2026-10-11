@@ -32,6 +32,7 @@ private enum Haptics {
 
 struct MarketView: View {
     @State private var feed = MarketFeed()
+    private let router = DemoRouter.shared
     @State private var chartState = CandleChartState(candleSpacing: 9)
 
     // Share chart as image (roadmap 8.5): `chartState.snapshot(...)` renders the chart as it looks
@@ -203,6 +204,14 @@ struct MarketView: View {
         }
         .task(id: configuration) {
             await feed.run(configuration)
+        }
+        // App Intents (roadmap 8.4): apply a "show chart" request left by `ShowChartIntent`. `initial: true`
+        // covers a cold launch, where the request exists before this view does.
+        .onChange(of: router.pendingChart, initial: true) { _, request in
+            guard let request else { return }
+            product = request.product
+            timeframe = request.timeframe
+            router.consume(request)
         }
         .sheet(item: $sharedImage) { shared in
             ActivityView(items: [shared.image])

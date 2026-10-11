@@ -6,6 +6,10 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added — App Intents sample and guide (roadmap 8.4)
+
+No new library API. The Demo gets `ShowChartIntent` (asset and timeframe parameters), an `AppShortcutsProvider` and a `DemoRouter` that makes the Market tab switch product on warm and cold launch; `docs/guides/app-intents.md` describes the pattern. Not yet run from Shortcuts, Siri or Spotlight.
+
 ### Added — Home-screen widget chart (roadmap 8.1)
 
 New `CandleKitWidgets` product with `WidgetCandleChart` (candles or line, `Shape`-based, no gestures) and `CandleAggregator.downsample(_:maxCount:)` in CandleKitCore to bound draw cost. The Demo gains a `CandleKitDemoWidget` extension target (small/medium/large, simulated BTC data), declared in `Demo/project.yml`; run `xcodegen generate` to pick it up. Design notes in `docs/design/widget.md`. Not built or run yet: no Swift toolchain was available where this was written.

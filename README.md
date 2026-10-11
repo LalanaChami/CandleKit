@@ -241,6 +241,10 @@ WidgetCandleChart(candles, mode: .candles, maxCandles: 40, showsLastPrice: true)
 
 `mode: .line` draws a close line with a soft fill. Long series are reduced with `CandleAggregator.downsample(_:maxCount:)`, so the cost of drawing doesn't grow with the data. There are no axes or gestures; put your own header above it. Your host app supplies the candles through a `TimelineProvider`. See `docs/design/widget.md` and the `CandleKitDemoWidget` target in `Demo/` (run `xcodegen generate` in `Demo/` after pulling).
 
+## Siri, Shortcuts and Spotlight
+
+CandleKit has no intent type of its own, since intents must live in your app target. `docs/guides/app-intents.md` describes the pattern, including the cold-launch pitfall, and the Demo has a working `ShowChartIntent` with an `AppShortcutsProvider`.
+
 ## Customization
 
 | Modifier | Purpose |

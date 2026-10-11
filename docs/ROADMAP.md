@@ -613,10 +613,12 @@ because the platform already does most of the work.
       close. `CandleKitCore` already has zero UIKit/SwiftUI-desktop dependencies, so the data and
       scale math needs no changes — this is really "does a slimmed-down rendering layer exist for
       watchOS," which is closer to 8.2's sparkline renderer than to the full iOS chart.
-- [ ] **8.4 App Intents / Siri / Spotlight.** Expose an `AppIntent` a host app can adopt for
+- [~] **8.4 App Intents / Siri / Spotlight.** Expose an `AppIntent` a host app can adopt for
       "show me \<symbol\>'s chart," so it's reachable from Siri, Shortcuts, and Spotlight. This is
       mostly a documented integration pattern for host apps rather than new CandleKit surface —
       write the guide, provide a starter `AppIntent` conformance as sample code in the Demo.
+      Shipped as `Demo/CandleKitDemo/Intents/ShowChartIntent.swift` and `docs/guides/app-intents.md`.
+      Not yet run from Shortcuts/Siri/Spotlight or checked on a cold launch.
 - [~] **8.5 Share chart as image.** Render the current visible chart (with a small CandleKit or
       app-supplied watermark) as a `UIImage`/`ImageRenderer` output for sharing to Messages or
       saving to Photos — the feature that makes Robinhood/Coinbase/Webull screenshots spread on
