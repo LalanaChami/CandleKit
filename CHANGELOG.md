@@ -4,7 +4,7 @@ All notable changes to CandleKit are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing has been tagged yet; entries
 below describe what has landed on `main` since the initial commit.
 
-## Unreleased
+## 0.2.0 - 2026-10-11
 
 ### Added — Documentation media
 
