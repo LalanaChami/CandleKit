@@ -8,6 +8,8 @@ let package = Package(
         // Listed so the core engine and its tests run with `swift test` on a Mac.
         // The SwiftUI chart itself is iOS-only for now.
         .macOS(.v14),
+        // Only CandleKitCore and CandleKitWidgets are meant for these; CandleKit's own files are iOS-guarded.
+        .watchOS(.v10),
     ],
     products: [
         .library(name: "CandleKit", targets: ["CandleKit"]),

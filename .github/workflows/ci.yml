@@ -51,3 +51,16 @@ jobs:
             -scheme CandleKitDemo \
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO
+
+  # 4. The widget/sparkline product must stay buildable for watchOS (roadmap 8.3).
+  widgets-watchos:
+    name: CandleKitWidgets — watchOS Simulator
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: xcodebuild CandleKitWidgets (watchOS Simulator)
+        run: |
+          xcodebuild build -quiet \
+            -scheme CandleKitWidgets \
+            -destination 'generic/platform=watchOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO

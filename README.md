@@ -245,6 +245,10 @@ WidgetCandleChart(candles, mode: .candles, maxCandles: 40, showsLastPrice: true)
 
 CandleKit has no intent type of its own, since intents must live in your app target. `docs/guides/app-intents.md` describes the pattern, including the cold-launch pitfall, and the Demo has a working `ShowChartIntent` with an `AppShortcutsProvider`.
 
+## Live Activities and small surfaces
+
+`SparklineView` (in `CandleKitWidgets`) draws a price line from plain closing prices, for Live Activities, the Dynamic Island and watchOS. It thins long input to 30 points by default and costs one path to draw. `CandleKitCore` and `CandleKitWidgets` support watchOS 10; the interactive chart stays iOS-only. See `docs/design/live-activity.md` and the Demo's "Live Activity" card.
+
 ## Customization
 
 | Modifier | Purpose |

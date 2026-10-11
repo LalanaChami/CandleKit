@@ -23,6 +23,7 @@ targets:
     platform: iOS
     sources:
       - path: CandleKitDemo
+      - path: Shared
     dependencies:
       - package: CandleKit
         product: CandleKit
@@ -45,6 +46,7 @@ targets:
     platform: iOS
     sources:
       - path: CandleKitDemoWidget
+      - path: Shared
     dependencies:
       - package: CandleKit
         product: CandleKitWidgets

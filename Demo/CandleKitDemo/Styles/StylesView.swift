@@ -67,6 +67,7 @@ struct StylesView: View {
                         )
                     }
                     ReplayCard(candles: Self.candles)
+                    LiveActivityCard()
                 }
                 .padding()
             }

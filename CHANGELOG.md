@@ -6,6 +6,10 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added — Live Activity sparkline and watchOS support for the widget product (roadmap 8.2, 8.3)
+
+`SparklineView` in `CandleKitWidgets` and `SparklineSampling` in CandleKitCore (with tests). `CandleKitCore` and `CandleKitWidgets` now declare watchOS 10, and CI builds `CandleKitWidgets` for the watchOS Simulator. The Demo gets a Live Activity (`PriceLiveActivity`, a Styles-tab card to start and end it) sharing `PriceActivityAttributes` between the app and the widget extension. `docs/design/visionos.md` records the 8.6 questions; no visionOS code yet. Written without a compiler; not yet built or run.
+
 ### Added — App Intents sample and guide (roadmap 8.4)
 
 No new library API. The Demo gets `ShowChartIntent` (asset and timeframe parameters), an `AppShortcutsProvider` and a `DemoRouter` that makes the Market tab switch product on warm and cold launch; `docs/guides/app-intents.md` describes the pattern. Not yet run from Shortcuts, Siri or Spotlight.

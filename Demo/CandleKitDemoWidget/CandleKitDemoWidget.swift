@@ -74,5 +74,8 @@ struct CandleKitDemoWidget: Widget {
 
 @main
 struct CandleKitDemoWidgetBundle: WidgetBundle {
-    var body: some Widget { CandleKitDemoWidget() }
+    var body: some Widget {
+        CandleKitDemoWidget()
+        PriceLiveActivity()
+    }
 }

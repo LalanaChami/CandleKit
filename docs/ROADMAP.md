@@ -604,12 +604,15 @@ because the platform already does most of the work.
       plus `CandleAggregator.downsample` in Core; design in `docs/design/widget.md`. The demo widget
       target is in `Demo/project.yml`. Not yet built or seen in the widget gallery; `swift test` for
       the aggregator tests not run.
-- [ ] **8.2 Live Activity / Dynamic Island.** A ticking price plus a tiny sparkline for a watched
+- [~] **8.2 Live Activity / Dynamic Island.** A ticking price plus a tiny sparkline for a watched
       symbol during market hours, or for the duration of a simulated "open position." Needs a
       genuinely minimal rendering path — a Live Activity's update budget and process lifetime are
       far more constrained than an app's — so this likely wants its own tiny sparkline renderer in
       Core rather than reusing the full `CandlestickChart`.
-- [ ] **8.3 watchOS companion view.** A compact price chart and a complication showing the latest
+      Shipped as `SparklineView` (`CandleKitWidgets`) + `SparklineSampling` (Core, tested) and a Demo
+      Live Activity (`PriceLiveActivity`, Styles-tab card); see `docs/design/live-activity.md`. Not yet
+      built or run on a device or simulator.
+- [~] **8.3 watchOS companion view.** A compact price chart and a complication showing the latest
       close. `CandleKitCore` already has zero UIKit/SwiftUI-desktop dependencies, so the data and
       scale math needs no changes — this is really "does a slimmed-down rendering layer exist for
       watchOS," which is closer to 8.2's sparkline renderer than to the full iOS chart.
@@ -633,7 +636,7 @@ because the platform already does most of the work.
       `Material` doesn't render under `ImageRenderer`. *Verify: Device — image in light and dark mode,
       candles and axis aligned with the screen, the last-price tag in the right place, the watermark
       not overlapping candles, and the demo's share sheet opening.*
-- [ ] **8.6 visionOS depth.** (design first, extends Phase 11.3) Beyond "does it render on glass":
+- [ ] **8.6 visionOS depth.** (design note: `docs/design/visionos.md`; no code yet) (design first, extends Phase 11.3) Beyond "does it render on glass":
       does a floating chart benefit from real depth — candles with subtle z-extrusion, or multiple
       symbols arranged in space for comparison? Needs hands-on time with a device or simulator
       before committing to anything beyond a flat chart in a window.

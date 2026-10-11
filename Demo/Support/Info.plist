@@ -20,6 +20,8 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<!-- Lets momentum scrolling run at 120 Hz on ProMotion iPhones. -->
