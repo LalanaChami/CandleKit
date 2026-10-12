@@ -267,6 +267,71 @@ CandleKit has no intent type of its own, since intents must live in your app tar
 
 Compact and expanded Dynamic Island, and the Lock Screen banner (the Lock Screen capture shows the system's Live Activities permission prompt).
 
+## Series types
+
+`.seriesType(_:)` switches how the series is drawn: `.candles` (default), `.ohlcBars`, `.line`, `.area` or `.heikinAshi`.
+
+```swift
+CandlestickChart(candles).seriesType(.heikinAshi)
+```
+
+Heikin-Ashi replaces the candle values with smoothed ones (`HeikinAshi.transform` in `CandleKitCore`), so the header, crosshair readout and last-price tag show the smoothed bar, not the last trade. Only the last bar is recomputed when a live tick arrives. Line and area use closing prices but scale the axis to highs and lows as candles do. The type isn't stored in a saved `ChartLayout`; keep it in your own settings.
+
+## Scrolling to a date
+
+`CandleChartState` can move the chart from code:
+
+```swift
+chartState.scroll(to: earningsDate)                              // centered on the nearest candle
+chartState.scroll(to: earningsDate, alignment: .leading, animated: true)
+chartState.setVisibleCandleCount(60)
+let shown = chartState.visibleDateRange                          // first...last visible candle time
+```
+
+A scroll is clamped like any other, so a candle close to either end of the data can't be centered. Before the chart has been laid out nothing happens and `scroll(to:)` returns `false`.
+
+## Event markers
+
+`.eventMarkers(_:onSelect:)` marks earnings, dividends, splits, news or your own events with small tappable glyphs above the time axis:
+
+```swift
+let events = [
+    ChartEvent(time: earningsDate, kind: .earnings, title: "Q3 earnings", detail: "Beat on revenue"),
+]
+
+CandlestickChart(candles)
+    .eventMarkers(events) { cluster in selected = cluster.events }
+```
+
+Each event sits on the candle that was trading at its time and events outside the loaded series are skipped. Markers that would overlap merge into one showing a count. The app decides what a tap shows. Markers are real buttons, so VoiceOver reads them. See Chart Options → Trader tools in the Demo.
+
+## Volume profile and anchored VWAP
+
+`.volumeProfile()` draws volume traded at each price for the candles on screen, with the point of control and value area highlighted. `ChartIndicator.anchoredVWAP(from:bands:)` draws a VWAP that starts at a time you choose, with optional standard-deviation bands:
+
+```swift
+CandlestickChart(candles)
+    .volumeProfile()
+    .indicators([.anchoredVWAP(from: swingLowDate, bands: 1)])
+```
+
+Each candle's volume is spread evenly over its high-low range, so the profile shows where trading clustered but isn't exchange-grade volume-at-price. The anchor is a time, so it stays put when history is prepended. The maths is in `CandleKitCore` (`VolumeProfile`, `AnchoredVWAP`).
+
+## Position and risk tool
+
+The `.riskReward` drawing (tool `.riskReward`) is a planned trade with draggable entry, target and stop. It shows reward-to-risk, price and percent distance to each, and flags a stop on the wrong side:
+
+```swift
+// In your own code, from the three prices:
+let plan = PositionPlan(entry: 100, target: 110, stop: 95)
+plan.rewardToRisk                                   // 2.0
+plan.quantity(accountSize: 10_000, riskFraction: 0.01, step: 1)   // 20 units risks 100
+```
+
+Select the drawing and drag a handle to move one price; drag anywhere else on it to move the whole plan. The chart doesn't know your account, so show a size with `PositionPlan.quantity`. Fees and slippage are ignored, and nothing here is advice.
+
+Also new in the drawing tools: `.parallelChannel` and `.fibonacciExtension`, both three-point tools that start with a sensible third point you can drag.
+
 ## Customization
 
 | Modifier | Purpose |

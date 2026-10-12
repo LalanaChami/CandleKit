@@ -4,6 +4,21 @@ All notable changes to CandleKit are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing has been tagged yet; entries
 below describe what has landed on `main` since the initial commit.
 
+## Unreleased
+
+### Added: trader tools (series types, scrolling to a date, event markers, volume profile, risk tool)
+
+- `.seriesType(_:)`: OHLC bars, line, area and Heikin-Ashi (4.6). Heikin-Ashi is a Core transform, recomputed incrementally on live ticks.
+- `CandleChartState.scroll(to:alignment:animated:)`, `visibleDateRange`, `visibleCandleCount`, `setVisibleCandleCount(_:)` (4.5).
+- `.eventMarkers(_:onSelect:)` with `ChartEvent` (9.2).
+- `.volumeProfile(_:)` and `AnchoredVWAPIndicator` / `.anchoredVWAP(from:bands:)` (9.5).
+- Drawing tools `.parallelChannel`, `.fibonacciExtension` and `.riskReward` with `PositionPlan` (6.4, 9.6). Selected drawings can now be reshaped by dragging their individual handles.
+- `IndicatorReferenceTests`: Tier 1 indicators checked against TA-Lib (5.9, partly done); seeding differences for MACD, ATR and OBV are documented.
+- Demo: Chart Options gains Chart type and Trader tools cards, and the drawing strip gains Channel, Fib ext and Risk.
+- Roadmap: items 9.7 to 9.14 added (order overlays, multi-timeframe sync, indicator alerts, market depth, pattern detection, backtest overlays, log scale, journal pins).
+
+Written without a compiler: none of this has been built, and the new Core tests have not been run. Their expected values come from Python reference scripts.
+
 ## 0.2.0 - 2026-10-11
 
 ### Added — Documentation media

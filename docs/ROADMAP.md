@@ -203,8 +203,26 @@ of weekends. Two things follow from that, and both are baked into how those phas
       the maintainer checklist that shipped with this change. Flip to `[x]` once confirmed dragging
       rescales, double-tap resets, and the ScrollView-embedded chart tab still scrolls normally.
 - [ ] **4.4 iPad pointer and keyboard.** Show the crosshair on hover (`UIHoverGestureRecognizer`), support trackpad scrolling and pinching, and scroll with arrow keys when focused.
-- [ ] **4.5 Programmatic viewport.** (design first) Add `scroll(to: Date)`, a readable visible date range, and a way to set how many candles are visible. Consider whether a `Binding`-based API fits better than imperative methods.
-- [ ] **4.6 More series types.** Line and area (close price), OHLC bars, and Heikin-Ashi (the transform goes in Core, with tests).
+- [~] **4.5 Programmatic viewport.** (design first) Add `scroll(to: Date)`, a readable visible date range, and a way to set how many candles are visible. Consider whether a `Binding`-based API fits better than imperative methods.
+
+      Shipped as imperative methods on `CandleChartState`, not a `Binding`: `scroll(to:alignment:animated:)`
+      (leading, center or trailing; nearest candle; spring animation optional), `visibleDateRange`,
+      `visibleCandleCount` and `setVisibleCandleCount(_:)`. The maths (`ViewportNavigation`, in Core)
+      has tests. Limits: a scroll is clamped like any other, so centering a candle near either end
+      of the data can't put it in the middle; nothing happens before the first layout. Not yet
+      compiled or run; *Verify: Device or Simulator — scroll to a date in the middle, near each end,
+      animated and not; setVisibleCandleCount at both zoom limits.*
+- [~] **4.6 More series types.** Line and area (close price), OHLC bars, and Heikin-Ashi (the transform goes in Core, with tests).
+
+      Shipped as `ChartSeriesType` and `.seriesType(_:)` (also `CandleChartStyle.seriesType`). Heikin-Ashi
+      (`HeikinAshi.transform`, Core, tested against Python reference values) is recomputed
+      incrementally when only the last candle changes. Bars, line and area are drawn in
+      `BaseLayerRenderer` with batched paths. Limits, recorded as decisions: Heikin-Ashi replaces
+      the values the header, crosshair and last-price tag show; line and area scale the price axis
+      to highs and lows as candles do; the crosshair highlight still traces a candle body; the type
+      isn't saved in a `ChartLayout`; the appear animation is a plain fade for bars and lines. Not
+      yet compiled or run. *Verify: Simulator — each type in light and dark, live ticks on each,
+      zoomed far out, with indicators, comparison and replay on.*
 
 Each feature ships with a demo example, docs, a CHANGELOG entry and tests where the logic is testable.
 
@@ -340,7 +358,7 @@ where a second convention is common, expose it as a parameter.
 - [ ] **5.8 Incremental indicator updates.** (was 5.4) Only if the 1.5 baseline shows recomputation
       on data change is a measurable cost with live data. Otherwise mark as dropped, citing the
       numbers.
-- [ ] **5.9 Validate indicator values against an authoritative source.** Every Tier 1 indicator's
+- [~] **5.9 Validate indicator values against an authoritative source.** Every Tier 1 indicator's
       numbers checked against a primary reference — Wilder's *New Concepts in Technical Trading
       Systems* for RSI/ATR, or a live TradingView chart on the same data — and the convention
       confirmed in each doc comment. Now applies to Tier 2 as well (5.6/5.7): those are cross-checked
@@ -352,6 +370,18 @@ where a second convention is common, expose it as a parameter.
       primary source. Until this task is done, CandleKit's indicator values are internally
       consistent and match the documented formulas, but are *not*
       confirmed to match what a user sees on another platform.
+
+      **Partly done.** `IndicatorReferenceTests` checks the Tier 1 indicators against TA-Lib 0.8.1 on
+      a fixed 150-candle series. SMA, EMA, WMA, RSI, Bollinger Bands and Stochastic match it to
+      floating-point precision. MACD, ATR and OBV match once warmed up (differences under 1e-5 for
+      MACD, 1e-4 for ATR over the last 30 bars) but differ early, by design: TA-Lib seeds MACD's fast
+      EMA later (its line starts at bar 33; CandleKit's at 25), leaves the first candle's range out
+      of ATR, and starts OBV at the first volume rather than zero. CandleKit's choices follow Pine
+      Script's documented definitions (`ta.ema`, `ta.tr`, `ta.cum`), which is what TradingView uses,
+      but that is from the documentation, not a side-by-side with a live chart. The Swift tests
+      haven't been run yet (no toolchain in the authoring session), though the expected values and
+      the tolerances were checked in Python against a port of the Swift code. Tier 2 indicators are
+      still unvalidated. *Remaining: a live TradingView comparison on the same data; Tier 2.*
 - [x] **5.10 Migrate the rendering layer onto the new model.** *(landed — needs an iOS build and a
       device check.)* `ChartIndicator` now wraps any `Indicator`; `IndicatorCache` is keyed by
       descriptor so re-parameterising one indicator doesn't invalidate the rest; `ChartFrame`
@@ -422,9 +452,18 @@ every tool afterwards is comparatively mechanical. Get them right once.
       on a device — see the CHANGELOG entry for specifics worth a real-device look (axis-tag stacking
       when lines sit close together in price, haptic weight/timing, and whether drag-to-position for a
       single-anchor tool actually reads as intended rather than surprising).
-- [ ] **6.4 Tier 2:** parallel channel, ellipse, triangle, Fibonacci extension / fan / time zones,
+- [~] **6.4 Tier 2:** parallel channel, ellipse, triangle, Fibonacci extension / fan / time zones,
       Andrews' pitchfork, long and short position tools (entry/target/stop with risk-reward
       readout), arrow, and callout.
+
+      Shipped so far: parallel channel (`.parallelChannel`), Fibonacci extension
+      (`.fibonacciExtension`) and the position tool (`.riskReward`, see 9.6). All three have three
+      anchors, so `DrawingKind.completingAnchors` supplies a default third one after the usual
+      two-point drag, and a selected drawing's anchors can now be **dragged individually** by their
+      handles (new in `DrawingController`; moving the whole drawing still works anywhere else on
+      it). Still to do: ellipse, triangle, fan, time zones, pitchfork, arrow, callout. Not yet
+      compiled or run. *Verify: Simulator — create each by dragging, drag each handle, delete, save
+      and restore in a layout, behaviour with history prepended.*
 
 **Exit criteria:** drawings survive history prepends and timeframe switches (done — anchors are
 `(Date, price)`, looked up against the current candle array on every render), round-trip through
@@ -667,10 +706,19 @@ Phase 8, none of these need a platform a WebView can't reach — they're just mi
       hour or shorter (not "under a day"), since a daily or hourly-plus bar can't sit inside a
       sub-hour window. *Verify: `swift test`; Device — tint colors in light and dark, boundaries
       line up with candles, no hitch flinging a 1-minute series, Performance-tab capture.*
-- [ ] **9.2 Event markers.** Small tappable annotations on the time axis for earnings, dividends,
+- [~] **9.2 Event markers.** Small tappable annotations on the time axis for earnings, dividends,
       or news — an app-supplied array of `(Date, label, kind)`, rendered as a marker glyph with a
       popover or callback on tap. Straightforward once indicator panes (5.3) establish a pattern
       for a second, app-driven data layer over the price series.
+
+      Shipped as `ChartEvent` / `ChartEventCluster`, `.eventMarkers(_:onSelect:)` and
+      `EventMarkerLayout` (Core, tested). Each event sits on the candle that was trading at its
+      time; markers closer than about 22pt merge into one showing a count; the markers are real
+      SwiftUI buttons just above the time axis, so VoiceOver reads them. Decisions: the app handles
+      the tap (a callback, no built-in popover); events outside the loaded series are dropped;
+      kinds are earnings, dividend, split, news and custom with fixed colors. Not yet compiled or
+      run. *Verify: Simulator — markers follow a pan, merge when zoomed out, tap opens the demo's
+      sheet, nothing blocks panning elsewhere, VoiceOver.*
 - [x] **9.3 Price-crossing primitive.** Not an alerting system (see "What CandleKit will not
       become") — just `CandleChartState` (or a small standalone type in Core) exposing "the price
       crossed level X between the last two candles," so an app can wire its own notification to it.
@@ -693,6 +741,42 @@ Phase 8, none of these need a platform a WebView can't reach — they're just mi
       Core with tests. Limits: step is forward-only, and going backwards is seen by the chart as a
       replaced series (viewport reset, appear animation). Checked in the iOS Simulator (start, play,
       pause, step, speed, end of series, restart); `swift test` for the Core tests not yet run.
+
+- [~] **9.5 Volume profile and anchored VWAP.** Volume by price for the candles on screen
+      (`.volumeProfile(_:)`, `VolumeProfile` in Core: buckets, point of control, value area) and a
+      VWAP that starts from a chosen time, with optional standard-deviation bands
+      (`AnchoredVWAPIndicator`, `.anchoredVWAP(from:bands:)`). The anchor is a *time*, so it holds
+      when history is prepended. Core maths is tested against Python reference values. Limits:
+      each candle's volume is spread evenly over its range, so the profile is an approximation
+      from OHLCV; the profile recomputes over the visible candles only when they or the last
+      candle change; the anchored VWAP isn't in the picker catalog because choosing a date needs
+      the app's own UI. Not yet compiled or run. *Verify: Simulator — profile follows pan and zoom
+      without hitching, value area and point of control look right, VWAP anchor stays put.*
+- [~] **9.6 Position and risk tool.** `.riskReward` drawing with draggable entry, target and stop:
+      shows reward-to-risk, price and percent distance to each, long or short from the target's
+      side, and flags a stop on the wrong side. `PositionPlan` (Core, tested) also gives a
+      position size from a risk amount or account share, rounded down to a lot step. The chart
+      shows no size yet (it doesn't know the account); apps call `PositionPlan.quantity`. Ignores
+      fees and slippage. Informational only, not advice. Not yet compiled or run.
+- [ ] **9.7 Order and position overlays.** Draw the host app's open orders and average entry as
+      lines, and let the person drag one to modify it, reporting the new price through a callback.
+      CandleKit never places or changes an order itself.
+- [ ] **9.8 Multi-timeframe sync.** Two or more linked charts (for example 1D and 15m) sharing a
+      time cursor and crosshair. Needs a small shared-state object and a decision about how
+      different intervals map to one time.
+- [ ] **9.9 Indicator alerts.** Extend `priceCrossings` to indicator values ("RSI crosses 70",
+      "price crosses the EMA") using the indicator results the core already computes.
+- [ ] **9.10 Market depth.** A depth ladder or order-book heatmap beside the price axis, for apps
+      that have a depth feed. Needs a data model and a decision on how it scales with the price axis.
+- [ ] **9.11 Pattern and level detection.** Optional markers for swing highs and lows, pivot
+      points and common candlestick patterns (engulfing, doji, hammer), computed in Core with
+      tests. Must be framed as informational, not as signals.
+- [ ] **9.12 Backtest overlays.** Plot an app's trade list as entry and exit arrows with an equity
+      curve in its own pane; pairs with replay (9.4) so a strategy can be replayed.
+- [ ] **9.13 Log scale and percent-from-open axis.** Price-axis modes for long histories and large
+      moves; interacts with manual scaling (4.3) and drawings.
+- [ ] **9.14 Notes and journal pins.** Attach a text note and optionally a snapshot (8.5) to a
+      candle, for trade journaling; persisted by the app, like events.
 
 ### Phase 10: Developer experience and ecosystem
 

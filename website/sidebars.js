@@ -15,6 +15,7 @@ const sidebars = {
         'guides/comparison-and-sessions',
         'guides/replay',
         'guides/widgets-and-live-activities',
+        'guides/trader-tools',
       ],
     },
     {
