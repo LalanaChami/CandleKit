@@ -41,6 +41,8 @@ public struct CandlestickChart: View {
     @State private var drawingController = DrawingController()
     @State private var heikinAshiCache = HeikinAshiCache()
     private var chartEvents: [ChartEvent] = []
+    private var volumeProfileStyle: VolumeProfileStyle?
+    @State private var volumeProfileCache = VolumeProfileCache()
     private var eventSelectionHandler: ((ChartEventCluster) -> Void)?
 
     /// - Parameters:
@@ -132,6 +134,9 @@ public struct CandlestickChart: View {
                         comparisonSeries: comparisonSeries,
                         comparisonNormalization: comparisonNormalization
                     )
+                    if let volumeProfileStyle {
+                        VolumeProfileLayer(state: state, style: volumeProfileStyle, chartStyle: style, cache: volumeProfileCache)
+                    }
                     PriceAxisGlassPanel(state: state, style: style)
                     if !comparisonSeries.isEmpty && !candles.isEmpty {
                         ComparisonLegend(state: state, style: style)
@@ -562,6 +567,19 @@ extension CandlestickChart {
     public func seriesType(_ type: ChartSeriesType) -> CandlestickChart {
         var copy = self
         copy.style.seriesType = type
+        return copy
+    }
+
+    /// Shows a volume profile (volume traded at each price) for the candles on screen, as bars along
+    /// the right edge with the point of control and value area highlighted. Pass `nil` to hide it.
+    ///
+    /// Each candle's volume is spread evenly over its high-low range, the usual approximation when
+    /// only candle data is available, so treat it as a guide to where trading clustered, not as
+    /// exchange-grade volume-at-price. It recalculates only when the visible candles or the last
+    /// candle change.
+    public func volumeProfile(_ style: VolumeProfileStyle? = VolumeProfileStyle()) -> CandlestickChart {
+        var copy = self
+        copy.volumeProfileStyle = style
         return copy
     }
 

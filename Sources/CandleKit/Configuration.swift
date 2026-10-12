@@ -162,6 +162,12 @@ public struct ChartIndicator: Identifiable {
         ChartIndicator(VWAPIndicator())
     }
 
+    /// Volume-weighted average price from the first candle at or after `date`, with optional
+    /// standard-deviation bands. See `AnchoredVWAPIndicator`.
+    public static func anchoredVWAP(from date: Date, bands: Double = 0) -> ChartIndicator {
+        ChartIndicator(AnchoredVWAPIndicator(anchor: date, bandMultiplier: bands))
+    }
+
     public static func rsi(_ period: Int = 14) -> ChartIndicator {
         ChartIndicator(RSIIndicator(period: period))
     }
