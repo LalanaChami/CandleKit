@@ -126,6 +126,18 @@ struct DrawingsLayerRenderer {
 
         case .fibonacciRetracement:
             drawFibonacciLevels(points[0], points[1], color: color, lineWidth: CGFloat(drawing.style.lineWidth), in: &context)
+
+        case .parallelChannel:
+            guard points.count == 3 else { return }
+            drawChannel(points, color: color, fillOpacity: drawing.style.fillOpacity ?? 0.08, style: strokeStyle, in: &context)
+
+        case .fibonacciExtension:
+            guard points.count == 3, drawing.anchors.count == 3 else { return }
+            drawFibonacciExtension(drawing.anchors, points, color: color, lineWidth: CGFloat(drawing.style.lineWidth), in: &context)
+
+        case .riskReward:
+            guard points.count == 3, drawing.anchors.count == 3 else { return }
+            drawRiskReward(drawing.anchors, points, in: &context)
         }
 
         if selected {
@@ -165,7 +177,8 @@ struct DrawingsLayerRenderer {
                 foreground: foreground,
                 context: &context
             )
-        case .trendLine, .ray, .rectangle, .fibonacciRetracement, .textNote:
+        case .trendLine, .ray, .rectangle, .fibonacciRetracement, .textNote,
+             .parallelChannel, .fibonacciExtension, .riskReward:
             break
         }
     }
@@ -222,6 +235,95 @@ struct DrawingsLayerRenderer {
             let label = context.resolve(Text(String(format: "%.1f%%", level * 100)).font(.caption2).foregroundStyle(color))
             context.draw(label, at: CGPoint(x: minX + 4, y: y - 8), anchor: .topLeading)
         }
+    }
+
+    private func drawChannel(_ points: [CGPoint], color: Color, fillOpacity: Double, style: StrokeStyle, in context: inout GraphicsContext) {
+        let (first, second) = DrawingScreenMapping.channelLines(points)
+        var band = Path()
+        band.move(to: first.0)
+        band.addLine(to: first.1)
+        band.addLine(to: second.1)
+        band.addLine(to: second.0)
+        band.closeSubpath()
+        context.fill(band, with: .color(color.opacity(fillOpacity)))
+        stroke(from: first.0, to: first.1, color: color, style: style, in: &context)
+        stroke(from: second.0, to: second.1, color: color, style: style, in: &context)
+        // Dashed midline.
+        stroke(
+            from: CGPoint(x: (first.0.x + second.0.x) / 2, y: (first.0.y + second.0.y) / 2),
+            to: CGPoint(x: (first.1.x + second.1.x) / 2, y: (first.1.y + second.1.y) / 2),
+            color: color.opacity(0.6),
+            style: StrokeStyle(lineWidth: max(1, style.lineWidth * 0.75), dash: [5, 4]),
+            in: &context
+        )
+    }
+
+    /// Projection levels from C of the A→B move, drawn from C's x to the right of the plot, with
+    /// the level's price as the label.
+    private func drawFibonacciExtension(
+        _ anchors: [DrawingAnchor], _ points: [CGPoint], color: Color, lineWidth: CGFloat, in context: inout GraphicsContext
+    ) {
+        let a = anchors[0].price, b = anchors[1].price, c = anchors[2].price
+        let startX = points[2].x
+        let endX = max(frame.layout.plot.maxX, startX + 40)
+        for level in FibonacciExtension.levels {
+            let price = FibonacciExtension.price(level: level, a: a, b: b, c: c)
+            let y = frame.y(forPrice: price)
+            stroke(from: CGPoint(x: startX, y: y), to: CGPoint(x: endX, y: y), color: color.opacity(0.85),
+                   style: StrokeStyle(lineWidth: max(1, lineWidth * 0.75)), in: &context)
+            let text = "\(String(format: "%.3g", level))  \(ChartFormat.price(price, digits: frame.priceFractionDigits))"
+            let label = context.resolve(Text(text).font(.caption2.monospacedDigit()).foregroundStyle(color))
+            context.draw(label, at: CGPoint(x: startX + 4, y: y - 8), anchor: .topLeading)
+        }
+        // Guide from A to B to C so it's clear what's being projected.
+        var guide = Path()
+        guide.move(to: points[0]); guide.addLine(to: points[1]); guide.addLine(to: points[2])
+        context.stroke(guide, with: .color(color.opacity(0.5)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+    }
+
+    /// The planned trade: green between entry and target, red between entry and stop, the ratio on
+    /// the entry line, and the price move and (with an account size set) share of each end.
+    private func drawRiskReward(_ anchors: [DrawingAnchor], _ points: [CGPoint], in context: inout GraphicsContext) {
+        let plan = PositionPlan(entry: anchors[0].price, target: anchors[1].price, stop: anchors[2].price)
+        let box = DrawingScreenMapping.riskRewardBox(points)
+        let entryY = points[0].y
+        let targetY = points[1].y
+        let stopY = points[2].y
+        let reward = Path(CGRect(x: box.minX, y: min(entryY, targetY), width: box.width, height: abs(targetY - entryY)))
+        let risk = Path(CGRect(x: box.minX, y: min(entryY, stopY), width: box.width, height: abs(stopY - entryY)))
+        let good = Color.green
+        let bad = Color.red
+        context.fill(reward, with: .color(good.opacity(plan.isValid ? 0.18 : 0.06)))
+        context.fill(risk, with: .color(bad.opacity(plan.isValid ? 0.18 : 0.30)))
+        stroke(from: CGPoint(x: box.minX, y: entryY), to: CGPoint(x: box.maxX, y: entryY), color: .primary.opacity(0.8),
+               style: StrokeStyle(lineWidth: 1.5), in: &context)
+        stroke(from: CGPoint(x: box.minX, y: targetY), to: CGPoint(x: box.maxX, y: targetY), color: good,
+               style: StrokeStyle(lineWidth: 1.5), in: &context)
+        stroke(from: CGPoint(x: box.minX, y: stopY), to: CGPoint(x: box.maxX, y: stopY), color: bad,
+               style: StrokeStyle(lineWidth: 1.5), in: &context)
+
+        let digits = frame.priceFractionDigits
+        func percent(_ price: Double) -> String { plan.percentMove(to: price).map { " (\(ChartFormat.percent($0)))" } ?? "" }
+        let ratioText: String
+        if let ratio = plan.rewardToRisk {
+            ratioText = "R:R \(String(format: "%.2f", ratio))  \(plan.side == .long ? "Long" : "Short")"
+        } else {
+            ratioText = "Stop is on the wrong side of the entry"
+        }
+        let entryLabel = context.resolve(Text(ratioText).font(.caption2.weight(.semibold)).foregroundStyle(.primary))
+        context.draw(entryLabel, at: CGPoint(x: box.minX + 4, y: entryY - 2), anchor: .bottomLeading)
+        let targetLabel = context.resolve(
+            Text("Target \(ChartFormat.price(plan.target, digits: digits))\(percent(plan.target))")
+                .font(.caption2.monospacedDigit()).foregroundStyle(good)
+        )
+        context.draw(targetLabel, at: CGPoint(x: box.minX + 4, y: targetY + (targetY < entryY ? 2 : -2)),
+                     anchor: targetY < entryY ? .topLeading : .bottomLeading)
+        let stopLabel = context.resolve(
+            Text("Stop \(ChartFormat.price(plan.stop, digits: digits))\(percent(plan.stop))")
+                .font(.caption2.monospacedDigit()).foregroundStyle(bad)
+        )
+        context.draw(stopLabel, at: CGPoint(x: box.minX + 4, y: stopY + (stopY > entryY ? -2 : 2)),
+                     anchor: stopY > entryY ? .bottomLeading : .topLeading)
     }
 
     private func stroke(from: CGPoint, to: CGPoint, color: Color, style: StrokeStyle, in context: inout GraphicsContext) {

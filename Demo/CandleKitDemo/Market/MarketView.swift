@@ -80,6 +80,7 @@ struct MarketView: View {
     // Chart Options features (roadmap 7.6 comparison, 9.1 session shading, 9.4 replay).
     @State private var comparison = ComparisonModel()
     @State private var replay = ReplayController()
+    @State private var tools = TraderToolsModel()
     @State private var showsSessions = false
     @State private var pendingSaveName = ""
     @State private var showingSaveNamePrompt = false
@@ -188,6 +189,7 @@ struct MarketView: View {
                     selectedDrawingID: $selectedDrawingID,
                     drawingColor: drawingColor,
                     replay: replay,
+                    tools: tools,
                     comparisonSeries: comparison.series,
                     comparisonNormalization: comparison.normalization,
                     sessions: sessionsAvailable && showsSessions ? TradingSession.usEquities : []
@@ -279,6 +281,8 @@ struct MarketView: View {
                 comparison: comparison,
                 showsSessions: $showsSessions,
                 sessionsAvailable: sessionsAvailable,
+                tools: tools,
+                candlesProvider: { feed.candles },
                 replayActive: replay.isActive,
                 canReplay: feed.status == .streaming,
                 onStartReplay: { startReplay() },
@@ -286,6 +290,10 @@ struct MarketView: View {
                 savedLayoutCount: savedLayouts.count,
                 onOpenLayouts: { showingLayoutsSheet = true }
             )
+        }
+        .sheet(item: $tools.selectedCluster) { cluster in
+            EventDetailSheet(cluster: cluster)
+                .presentationDetents([.fraction(0.35), .medium])
         }
         .alert("Save Layout", isPresented: $showingSaveNamePrompt) {
             TextField("Layout name", text: $pendingSaveName)
@@ -430,6 +438,7 @@ private struct MarketChartSection: View {
     @Binding var selectedDrawingID: UUID?
     let drawingColor: DrawingColor
     let replay: ReplayController
+    let tools: TraderToolsModel
     let comparisonSeries: [ComparisonSeries]
     let comparisonNormalization: ComparisonNormalization
     /// Empty means no shading.
@@ -511,6 +520,7 @@ private struct MarketChartSection: View {
 
     @ViewBuilder
     private var realChart: some View {
+        let toolIndicators = tools.vwapAnchor.map { [ChartIndicator.anchoredVWAP(from: $0, bands: 1)] } ?? []
         CandlestickChart(feed.candles, state: chartState)
             .tradingSessions(sessions)
             .comparing(comparisonSeries, normalization: comparisonNormalization)
@@ -519,7 +529,13 @@ private struct MarketChartSection: View {
             // explicitly here since the library default keeps the classic opaque axis unchanged.
             // App-owned state, not a constant, so Save/Load Layout has something to restore.
             .candleChartStyle(style)
-            .indicators(indicators)
+            // After the style, which would otherwise reset the series type to candles.
+            .seriesType(tools.seriesType)
+            .volumeProfile(tools.showsVolumeProfile ? VolumeProfileStyle() : nil)
+            .eventMarkers(tools.showsEvents ? TraderToolsModel.events(for: feed.candles) : []) { cluster in
+                tools.selectedCluster = cluster
+            }
+            .indicators(indicators + toolIndicators)
             .volumeVisible(showsVolume)
             .drawings($drawings)
             .drawingTool($activeDrawingTool)
@@ -814,6 +830,9 @@ private struct DrawingToolPicker: View {
         (.rectangle, "Rect", "rectangle", .degrees(0)),
         (.fibonacciRetracement, "Fib", "percent", .degrees(0)),
         (.textNote, "Note", "text.bubble", .degrees(0)),
+        (.parallelChannel, "Channel", "rectangle.split.3x1", .degrees(0)),
+        (.fibonacciExtension, "Fib ext", "chart.line.flattrend.xyaxis", .degrees(0)),
+        (.riskReward, "Risk", "arrow.up.arrow.down", .degrees(0)),
     ]
 
     // A trader's usual palette: bullish green and bearish red for marking support/resistance in the
@@ -965,6 +984,9 @@ private struct ChartOptionsSheet: View {
     @Binding var showsMACD: Bool
     let chartState: CandleChartState
     @Bindable var comparison: ComparisonModel
+    @Bindable var tools: TraderToolsModel
+    /// Read only when the person taps "Next event", never while the sheet is drawing.
+    let candlesProvider: () -> [Candle]
     @Binding var showsSessions: Bool
     let sessionsAvailable: Bool
     let replayActive: Bool
@@ -1004,6 +1026,12 @@ private struct ChartOptionsSheet: View {
 
                     sectionLabel("Replay")
                     replayCard
+
+                    sectionLabel("Chart type")
+                    chartTypeCard
+
+                    sectionLabel("Trader tools")
+                    traderToolsCard
 
                     resetZoomButton
                 }
@@ -1069,6 +1097,80 @@ private struct ChartOptionsSheet: View {
                 .pickerStyle(.segmented)
             }
             Text("Up to three symbols of the same kind, drawn as lines over the chart on a shared percent axis. The lines load once and don't tick with live trades.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    /// Scrolls to the first simulated event after the middle of what's on screen, turning the markers
+    /// on if they aren't. This is the "jump to earnings day" case `scroll(to:)` exists for.
+    private func jumpToNextEvent() {
+        tools.showsEvents = true
+        let events = TraderToolsModel.events(for: candlesProvider())
+        guard let range = chartState.visibleDateRange else { return }
+        let middle = range.lowerBound.addingTimeInterval(range.upperBound.timeIntervalSince(range.lowerBound) / 2)
+        let next = events.first { $0.time > middle.addingTimeInterval(60) } ?? events.first
+        if let next { chartState.scroll(to: next.time, alignment: .center, animated: true) }
+    }
+
+    private var chartTypeCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Chart type", selection: $tools.seriesType) {
+                ForEach(ChartSeriesType.allCases, id: \.self) { type in
+                    Text(TraderToolsModel.title(for: type)).tag(type)
+                }
+            }
+            .pickerStyle(.menu)
+            Text("Heikin-Ashi smooths the candles, so the header and last-price tag show the smoothed bar rather than the last trade.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var traderToolsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(isOn: $tools.showsVolumeProfile) {
+                Label("Volume profile", systemImage: "chart.bar.xaxis")
+                    .font(.subheadline.weight(.medium))
+            }
+            Toggle(isOn: Binding(
+                get: { tools.vwapAnchor != nil },
+                set: { on in
+                    // Anchors at the left edge of what's on screen right now.
+                    tools.vwapAnchor = on ? (chartState.visibleDateRange?.lowerBound ?? Date()) : nil
+                }
+            )) {
+                Label("Anchored VWAP from the left edge", systemImage: "scope")
+                    .font(.subheadline.weight(.medium))
+            }
+            Toggle(isOn: $tools.showsEvents) {
+                Label("Event markers", systemImage: "flag")
+                    .font(.subheadline.weight(.medium))
+            }
+            HStack {
+                Button {
+                    Haptics.tap()
+                    chartState.setVisibleCandleCount(60)
+                } label: {
+                    Label("Show 60 candles", systemImage: "arrow.left.and.right")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                Button {
+                    Haptics.tap()
+                    dismiss()
+                    jumpToNextEvent()
+                } label: {
+                    Label("Next event", systemImage: "flag.checkered")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+            Text("Volume profile and VWAP are computed from the candles on screen. Events here are simulated, one about every 40 candles; tap a marker for details. Risk/reward, channel and Fibonacci extension are in the drawing tools below the chart.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -1512,5 +1614,41 @@ private struct ReplayBar: View {
         }
         .font(.body)
         .foregroundStyle(.primary)
+    }
+}
+
+
+/// What a tapped event marker shows: each event's kind, title, time and detail.
+private struct EventDetailSheet: View {
+    let cluster: ChartEventCluster
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List(cluster.events) { event in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(event.kind.spokenName)
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(.quaternary, in: Capsule())
+                        Text(event.time.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(event.title).font(.headline)
+                    if let detail = event.detail {
+                        Text(detail).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            .navigationTitle(cluster.events.count == 1 ? "Event" : "\(cluster.events.count) events")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+            }
+        }
     }
 }

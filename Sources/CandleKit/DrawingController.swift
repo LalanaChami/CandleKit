@@ -53,6 +53,9 @@ public final class DrawingController {
 
     @ObservationIgnored private var dragStartAnchor: DrawingAnchor?
     @ObservationIgnored private var dragStartAnchors: [DrawingAnchor]?
+    /// When a drag began on one of the selected drawing's handles, which anchor it moves. `nil`
+    /// means the drag moves the whole drawing.
+    @ObservationIgnored private var dragAnchorIndex: Int?
 
     /// Set by `anchor(at:)` on every call; `ChartGestureCoordinator` reads this right after calling
     /// `updatePrimaryGesture` to decide whether to fire its existing light-impact haptic, the same
@@ -87,7 +90,8 @@ public final class DrawingController {
     /// `previewAnchor` alone is the whole drawing.
     var previewDrawing: Drawing? {
         guard let pendingTool, let previewAnchor else { return nil }
-        return Drawing(kind: pendingTool.kind, anchors: pendingAnchors + [previewAnchor], style: defaultStyleProvider())
+        let anchors = pendingTool.kind.completingAnchors(pendingAnchors + [previewAnchor])
+        return Drawing(kind: pendingTool.kind, anchors: anchors, style: defaultStyleProvider())
     }
 
     // MARK: Gesture entry points — called by `ChartGestureCoordinator`. `point` is always in the
@@ -98,7 +102,7 @@ public final class DrawingController {
     /// this once, at gesture-began time, and keeps that answer for the rest of the gesture — the
     /// mode is decided once, not renegotiated mid-drag (design note §2).
     func shouldClaimPrimaryGesture(at point: CGPoint) -> Bool {
-        activeTool != nil || hitTest(point) != nil
+        activeTool != nil || handleIndex(at: point) != nil || hitTest(point) != nil
     }
 
     func beginPrimaryGesture(at point: CGPoint) {
@@ -118,12 +122,19 @@ public final class DrawingController {
             return
         }
 
-        setSelection(hitTest(point))
+        // Grabbing a handle of the drawing that is already selected moves just that anchor (the stop
+        // of a risk/reward plan, the second line of a channel). Checked before the ordinary hit test,
+        // since a handle can sit away from the drawing's stroke.
+        dragAnchorIndex = handleIndex(at: point)
+        if dragAnchorIndex == nil {
+            setSelection(hitTest(point))
+        }
         if let selectedDrawingID, let drawing = drawings.first(where: { $0.id == selectedDrawingID }),
            !drawing.isLocked, let anchor = anchor(at: point) {
             dragStartAnchor = anchor
             dragStartAnchors = drawing.anchors
         } else {
+            dragAnchorIndex = nil
             dragStartAnchor = nil
             dragStartAnchors = nil
         }
@@ -145,6 +156,14 @@ public final class DrawingController {
               let current = anchor(at: point)
         else { return }
 
+        if let dragAnchorIndex, drawings[index].anchors.indices.contains(dragAnchorIndex) {
+            var edited = drawings[index]
+            edited.anchors[dragAnchorIndex] = current
+            setDrawing(edited, at: index)
+            bump()
+            return
+        }
+
         // The whole drawing translates by the same time/price delta — moving one anchor at a time
         // (a resize handle) is a fast follow, not part of this first pass; see the design note.
         let deltaTime = current.time.timeIntervalSince(dragStartAnchor.time)
@@ -161,6 +180,7 @@ public final class DrawingController {
         defer {
             dragStartAnchor = nil
             dragStartAnchors = nil
+            dragAnchorIndex = nil
         }
         guard pendingTool != nil else { return }
         if let anchor = anchor(at: point) {
@@ -200,7 +220,7 @@ public final class DrawingController {
             bump()
         }
         guard let pendingTool, let previewAnchor else { return }
-        let anchors = Array((pendingAnchors + [previewAnchor]).prefix(pendingTool.kind.anchorCount))
+        let anchors = Array(pendingTool.kind.completingAnchors(pendingAnchors + [previewAnchor]).prefix(pendingTool.kind.anchorCount))
         append(Drawing(kind: pendingTool.kind, anchors: anchors, style: defaultStyleProvider()))
     }
 
@@ -214,6 +234,24 @@ public final class DrawingController {
         guard var array = drawingsBinding?.wrappedValue, array.indices.contains(index) else { return }
         array[index] = drawing
         drawingsBinding?.wrappedValue = array
+    }
+
+    /// Index of the selected drawing's anchor handle under `point`, if any. Locked drawings have no
+    /// draggable handles.
+    private func handleIndex(at point: CGPoint) -> Int? {
+        guard let selectedDrawingID, let frame = frameProvider(),
+              let drawing = drawings.first(where: { $0.id == selectedDrawingID }), !drawing.isLocked,
+              let points = DrawingScreenMapping.screenPoints(for: drawing, in: frame)
+        else { return nil }
+        var best: (index: Int, distance: Double)?
+        for (index, handle) in points.enumerated() {
+            let dx = Double(handle.x - point.x)
+            let dy = Double(handle.y - point.y)
+            let distance = (dx * dx + dy * dy).squareRoot()
+            guard distance <= Self.hitTolerance else { continue }
+            if best == nil || distance < best!.distance { best = (index, distance) }
+        }
+        return best?.index
     }
 
     private func anchor(at point: CGPoint) -> DrawingAnchor? {

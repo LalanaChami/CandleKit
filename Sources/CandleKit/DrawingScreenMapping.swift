@@ -75,6 +75,30 @@ enum DrawingScreenMapping {
         return CGPoint(x: origin.x + dx * scale, y: origin.y + dy * scale)
     }
 
+    /// The two lines of a parallel channel in screen space: the one through anchors 0 and 1, and the
+    /// parallel through anchor 2, spanning the same x range.
+    static func channelLines(_ points: [CGPoint]) -> ((CGPoint, CGPoint), (CGPoint, CGPoint)) {
+        let a = points[0], b = points[1], c = points[2]
+        let dx = b.x - a.x
+        let slope = dx != 0 ? (b.y - a.y) / dx : 0
+        // The second line has the same slope and passes through `c`.
+        let startY = c.y + (a.x - c.x) * slope
+        let endY = c.y + (b.x - c.x) * slope
+        return ((a, b), (CGPoint(x: a.x, y: startY), CGPoint(x: b.x, y: endY)))
+    }
+
+    /// The box a risk/reward drawing covers: from the entry's x to the target's x (at least 40pt
+    /// wide so a quick tap still produces something visible) and from the highest to the lowest of
+    /// target, entry and stop. Anchors are entry, target, stop; only y is used for the stop.
+    static func riskRewardBox(_ points: [CGPoint]) -> CGRect {
+        let entry = points[0], target = points[1], stop = points[2]
+        let left = min(entry.x, target.x)
+        let width = max(abs(target.x - entry.x), 40)
+        let top = min(target.y, entry.y, stop.y)
+        let bottom = max(target.y, entry.y, stop.y)
+        return CGRect(x: left, y: top, width: width, height: bottom - top)
+    }
+
     /// Shortest distance from a touch to a drawing's visible stroke, dispatching to the
     /// `DrawingGeometry` primitive that matches what `DrawingsLayerRenderer` actually draws for that
     /// `kind` — kept in lockstep with the renderer for the same reason `screenPoints` is shared
@@ -82,6 +106,8 @@ enum DrawingScreenMapping {
     static func distance(to drawing: Drawing, screenPoints points: [CGPoint], from touch: CGPoint, plot: CGRect) -> Double {
         func pt(_ p: CGPoint) -> DrawingGeometry.Point { DrawingGeometry.Point(x: Double(p.x), y: Double(p.y)) }
         let target = pt(touch)
+        // A drawing from an out-of-date saved layout may have the wrong number of anchors.
+        guard points.count >= drawing.kind.anchorCount else { return .infinity }
 
         switch drawing.kind {
         case .horizontalLine:
@@ -109,6 +135,25 @@ enum DrawingScreenMapping {
             return DrawingGeometry.distance(from: target, toSegment: pt(CGPoint(x: points[0].x, y: y)), pt(CGPoint(x: endX, y: y)))
         case .ray:
             return DrawingGeometry.distance(from: target, toRayFrom: pt(points[0]), through: pt(points[1]))
+        case .parallelChannel:
+            // Both lines, as bounded segments, plus the three handles so a selected channel can be
+            // grabbed by any of them.
+            let (first, second) = channelLines(points)
+            return min(
+                DrawingGeometry.distance(from: target, toSegment: pt(first.0), pt(first.1)),
+                DrawingGeometry.distance(from: target, toSegment: pt(second.0), pt(second.1))
+            )
+        case .fibonacciExtension:
+            // Bounding box of the three anchors, like retracement.
+            let xs = points.map(\.x), ys = points.map(\.y)
+            return DrawingGeometry.distanceToRectangleEdge(
+                from: target,
+                corner: pt(CGPoint(x: xs.min()!, y: ys.min()!)),
+                pt(CGPoint(x: xs.max()!, y: ys.max()!))
+            )
+        case .riskReward:
+            let box = riskRewardBox(points)
+            return DrawingGeometry.distanceToRectangleEdge(from: target, corner: pt(box.origin), pt(CGPoint(x: box.maxX, y: box.maxY)))
         case .rectangle, .fibonacciRetracement:
             // A Fibonacci retracement is hit-tested against its bounding box, same as a rectangle —
             // precise enough to select the whole tool without needing per-level hit testing.
