@@ -40,6 +40,8 @@ public struct CandlestickChart: View {
     private var drawingDefaultStyle = DrawingStyle()
     @State private var drawingController = DrawingController()
     @State private var heikinAshiCache = HeikinAshiCache()
+    private var chartEvents: [ChartEvent] = []
+    private var eventSelectionHandler: ((ChartEventCluster) -> Void)?
 
     /// - Parameters:
     ///   - candles: The series to draw, oldest first.
@@ -145,6 +147,9 @@ public struct CandlestickChart: View {
                     )
                     .frame(width: content.width, height: content.height)
                     .position(x: content.midX, y: content.midY)
+                    if !chartEvents.isEmpty {
+                        EventMarkersLayer(state: state, events: chartEvents, style: style, onSelect: eventSelectionHandler)
+                    }
                     // Last, so it wins hit-testing in its own narrow strip regardless of what's
                     // beneath it. `ChartGestureView.content` is sized from `contentRect`, which
                     // widens by `metrics.priceAxisOverlap` (so candles can slide under a glass axis)
@@ -547,7 +552,6 @@ extension CandlestickChart {
         return copy
     }
 
-    /// Shows volume bars beneath the candles. On by default.
     /// Draws the series as candles (the default), OHLC bars, a close-price line, an area, or
     /// Heikin-Ashi candles. Equivalent to setting `CandleChartStyle.seriesType`.
     ///
@@ -561,6 +565,27 @@ extension CandlestickChart {
         return copy
     }
 
+    /// Marks events (earnings, dividends, splits, news or your own) with small tappable glyphs just
+    /// above the time axis. Each event sits on the candle that was trading at its time; events
+    /// outside the loaded series are skipped, and markers that would overlap merge into one showing
+    /// a count. `onSelect` receives the tapped marker, so the app decides what to show, for example
+    /// a popover or sheet listing `cluster.events`.
+    ///
+    /// ```swift
+    /// CandlestickChart(candles)
+    ///     .eventMarkers(events) { cluster in selected = cluster.events }
+    /// ```
+    public func eventMarkers(
+        _ events: [ChartEvent],
+        onSelect: ((ChartEventCluster) -> Void)? = nil
+    ) -> CandlestickChart {
+        var copy = self
+        copy.chartEvents = events
+        copy.eventSelectionHandler = onSelect
+        return copy
+    }
+
+    /// Shows volume bars beneath the candles. On by default.
     public func volumeVisible(_ visible: Bool = true) -> CandlestickChart {
         var copy = self
         copy.showsVolume = visible
