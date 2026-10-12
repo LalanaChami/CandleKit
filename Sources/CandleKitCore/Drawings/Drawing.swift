@@ -26,6 +26,13 @@ public struct DrawingAnchor: Codable, Hashable, Sendable {
 public enum DrawingKind: String, Codable, Sendable, CaseIterable {
     case horizontalLine, horizontalRay, verticalLine, trendLine, ray, rectangle
     case fibonacciRetracement, textNote
+    /// Two parallel trend lines. Anchors: first line's start, first line's end, and one point the
+    /// second (parallel) line passes through.
+    case parallelChannel
+    /// Fibonacci projections. Anchors: A and B (the impulse), then C, where the projection starts.
+    case fibonacciExtension
+    /// A planned trade. Anchors: entry, target, stop.
+    case riskReward
 
     /// How many anchors a drawing of this kind needs. The renderer and hit-testing both use this to
     /// stay generic instead of switching on `DrawingKind` a second time.
@@ -33,6 +40,7 @@ public enum DrawingKind: String, Codable, Sendable, CaseIterable {
         switch self {
         case .horizontalLine, .verticalLine, .textNote: return 1
         case .horizontalRay, .trendLine, .ray, .rectangle, .fibonacciRetracement: return 2
+        case .parallelChannel, .fibonacciExtension, .riskReward: return 3
         }
     }
 }
@@ -46,6 +54,7 @@ public enum DrawingKind: String, Codable, Sendable, CaseIterable {
 public enum DrawingTool: String, Sendable, CaseIterable {
     case horizontalLine, horizontalRay, verticalLine, trendLine, ray, rectangle
     case fibonacciRetracement, textNote
+    case parallelChannel, fibonacciExtension, riskReward
 
     public var kind: DrawingKind {
         // `DrawingTool` and `DrawingKind` share raw values one-for-one today, so this can't fail —
@@ -61,6 +70,9 @@ public enum DrawingTool: String, Sendable, CaseIterable {
         case .rectangle: return .rectangle
         case .fibonacciRetracement: return .fibonacciRetracement
         case .textNote: return .textNote
+        case .parallelChannel: return .parallelChannel
+        case .fibonacciExtension: return .fibonacciExtension
+        case .riskReward: return .riskReward
         }
     }
 }
