@@ -55,16 +55,21 @@ struct BaseLayerRenderer {
             // During the appear animation candles draw per-candle (no path batching) so each can
             // carry its own staggered opacity. Volume, indicators and the last-price line fade in
             // together at the overall phase so they trail the candles visually.
-            ChartPerformance.measure(.drawAppear) { drawAnimatedCandles(in: &plotContext) }
+            let drawsPerCandle = style.seriesType == .candles || style.seriesType == .heikinAshi
+            if drawsPerCandle {
+                ChartPerformance.measure(.drawAppear) { drawAnimatedCandles(in: &plotContext) }
+            }
             var fadedContext = plotContext
             fadedContext.opacity *= appearPhase
+            // OHLC bars and lines don't have a per-candle sweep; they fade in with the rest.
+            if !drawsPerCandle { drawSeries(in: &fadedContext) }
             ChartPerformance.measure(.drawVolume) { drawVolume(in: &fadedContext) }
             ChartPerformance.measure(.drawIndicators) { drawIndicators(in: &fadedContext) }
             drawComparison(in: &fadedContext)
             drawLastPriceLine(in: &fadedContext)
         } else {
             ChartPerformance.measure(.drawVolume) { drawVolume(in: &plotContext) }
-            ChartPerformance.measure(.drawCandles) { drawCandles(in: &plotContext) }
+            ChartPerformance.measure(.drawCandles) { drawSeries(in: &plotContext) }
             ChartPerformance.measure(.drawIndicators) { drawIndicators(in: &plotContext) }
             drawComparison(in: &plotContext)
             drawLastPriceLine(in: &plotContext)
@@ -181,6 +186,78 @@ struct BaseLayerRenderer {
     /// per-candle rectangles (`CandleGeometry.compute`, the same helper the crosshair's own glow
     /// uses), so which batch a candle lands in is the only thing that changes about it; there's no
     /// separate overlay shape that could drift out of alignment with what's actually drawn here.
+    /// Draws the main series in the chosen `ChartSeriesType`. Candles and Heikin-Ashi share the
+    /// candle path (the Heikin-Ashi values are substituted before the chart sees the data).
+    private func drawSeries(in context: inout GraphicsContext) {
+        switch style.seriesType {
+        case .candles, .heikinAshi: drawCandles(in: &context)
+        case .ohlcBars: drawOHLCBars(in: &context)
+        case .line: drawCloseLine(filled: false, in: &context)
+        case .area: drawCloseLine(filled: true, in: &context)
+        }
+    }
+
+    /// OHLC bars: a vertical high-low stroke, an open tick to its left and a close tick to its
+    /// right. Batched into one path per direction, so the cost is two fills however many are shown.
+    private func drawOHLCBars(in context: inout GraphicsContext) {
+        let (_, wickWidth) = widthsInPixels
+        let scale = pixels.scale
+        let thickness = wickWidth / scale
+        let tick = max(2, CGFloat(frame.viewport.spacing) * style.bodyWidthRatio / 2)
+        var rising = Path()
+        var falling = Path()
+        for index in frame.visible {
+            let candle = frame.candles[index]
+            let x = pixels.snap(frame.centerX(ofCandle: index))
+            let highY = pixels.snap(frame.y(forPrice: candle.high))
+            let lowY = pixels.snap(frame.y(forPrice: candle.low))
+            let openY = pixels.snap(frame.y(forPrice: candle.open))
+            let closeY = pixels.snap(frame.y(forPrice: candle.close))
+            var path = Path()
+            path.addRect(CGRect(x: x - thickness / 2, y: highY, width: thickness, height: max(lowY - highY, thickness)))
+            path.addRect(CGRect(x: x - tick, y: openY - thickness / 2, width: tick, height: thickness))
+            path.addRect(CGRect(x: x, y: closeY - thickness / 2, width: tick, height: thickness))
+            if candle.isBullish { rising.addPath(path) } else { falling.addPath(path) }
+        }
+        context.fill(rising, with: .color(style.upColor))
+        context.fill(falling, with: .color(style.downColor))
+    }
+
+    /// A line through the closes, optionally with a fill down to the bottom of the price pane. The
+    /// colour follows the direction of the visible stretch (up colour when it ends higher than it
+    /// starts). One stroke and at most one fill.
+    private func drawCloseLine(filled: Bool, in context: inout GraphicsContext) {
+        guard let first = frame.visible.first, let last = frame.visible.last else { return }
+        let closes = frame.candles[frame.lineRange].map { Optional($0.close) }
+        let offset = frame.lineRange.lowerBound
+        var path = Path()
+        var started = false
+        var firstPoint = CGPoint.zero
+        var lastPoint = CGPoint.zero
+        for (i, value) in closes.enumerated() {
+            guard let value, value.isFinite else { continue }
+            let point = CGPoint(x: frame.centerX(ofCandle: offset + i), y: frame.y(forPrice: value))
+            if started { path.addLine(to: point) } else { path.move(to: point); firstPoint = point; started = true }
+            lastPoint = point
+        }
+        guard started else { return }
+        let rising = frame.candles[last].close >= frame.candles[first].close
+        let color = rising ? style.upColor : style.downColor
+        if filled {
+            var fill = path
+            let bottom = frame.layout.pricePane.plot.maxY
+            fill.addLine(to: CGPoint(x: lastPoint.x, y: bottom))
+            fill.addLine(to: CGPoint(x: firstPoint.x, y: bottom))
+            fill.closeSubpath()
+            context.fill(fill, with: .linearGradient(
+                Gradient(colors: [color.opacity(0.32), color.opacity(0.02)]),
+                startPoint: CGPoint(x: 0, y: frame.layout.pricePane.plot.minY),
+                endPoint: CGPoint(x: 0, y: bottom)
+            ))
+        }
+        context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
+    }
+
     private func drawCandles(in context: inout GraphicsContext) {
         let (bodyWidth, wickWidth) = widthsInPixels
         let scale = pixels.scale

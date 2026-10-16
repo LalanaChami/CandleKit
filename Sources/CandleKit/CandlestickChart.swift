@@ -39,6 +39,7 @@ public struct CandlestickChart: View {
     /// What a newly created drawing looks like — see `defaultDrawingStyle(_:)`.
     private var drawingDefaultStyle = DrawingStyle()
     @State private var drawingController = DrawingController()
+    @State private var heikinAshiCache = HeikinAshiCache()
 
     /// - Parameters:
     ///   - candles: The series to draw, oldest first.
@@ -51,10 +52,14 @@ public struct CandlestickChart: View {
     /// The series to draw: all of it, or the replayed prefix. Reads the controller's observed
     /// properties, so the chart redraws when a replay steps.
     private func displayedCandles() -> [Candle] {
-        guard let replayController, replayController.isActive else { return candles }
-        replayController.attach(totalCount: candles.count)
-        let visible = replayController.visibleCount(of: candles.count)
-        return visible >= candles.count ? candles : Array(candles.prefix(visible))
+        var shown = candles
+        if let replayController, replayController.isActive {
+            replayController.attach(totalCount: candles.count)
+            let visible = replayController.visibleCount(of: candles.count)
+            if visible < candles.count { shown = Array(candles.prefix(visible)) }
+        }
+        guard style.seriesType == .heikinAshi else { return shown }
+        return heikinAshiCache.transform(shown)
     }
 
     // Deliberately does NOT read `state.revision`.
@@ -543,6 +548,19 @@ extension CandlestickChart {
     }
 
     /// Shows volume bars beneath the candles. On by default.
+    /// Draws the series as candles (the default), OHLC bars, a close-price line, an area, or
+    /// Heikin-Ashi candles. Equivalent to setting `CandleChartStyle.seriesType`.
+    ///
+    /// Heikin-Ashi replaces the candle values with smoothed ones, so the header, crosshair readout
+    /// and last-price tag show the smoothed bar rather than the real last trade. Line and area
+    /// scale the price axis to the same highs and lows as candles, so the line doesn't touch the
+    /// edges. The crosshair highlight outlines the candle body even for bars and lines.
+    public func seriesType(_ type: ChartSeriesType) -> CandlestickChart {
+        var copy = self
+        copy.style.seriesType = type
+        return copy
+    }
+
     public func volumeVisible(_ visible: Bool = true) -> CandlestickChart {
         var copy = self
         copy.showsVolume = visible
@@ -628,6 +646,23 @@ extension CandlestickChart {
         var copy = self
         copy.selectedDrawingBinding = selection
         return copy
+    }
+}
+
+
+/// Keeps the last Heikin-Ashi output so a live tick only recomputes the final bar.
+///
+/// A plain reference type mutated from `body`: nothing observes it, and SwiftUI never reads it back
+/// except through the value `transform` returns.
+final class HeikinAshiCache {
+    private var input: [Candle] = []
+    private var output: [Candle] = []
+
+    func transform(_ candles: [Candle]) -> [Candle] {
+        let result = HeikinAshi.transform(candles, reusing: output, previousInput: input)
+        input = candles
+        output = result
+        return result
     }
 }
 #endif

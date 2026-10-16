@@ -192,6 +192,56 @@ public final class CandleChartState {
         pan(byPoints: -Double(count) * viewport.spacing)
     }
 
+    // MARK: Programmatic viewport (roadmap 4.5)
+
+    /// Scrolls so the candle closest in time to `date` sits at `alignment`, keeping the zoom level.
+    /// A date outside the data goes to the first or last candle. Does nothing before the first
+    /// layout (the plot has no width yet) or with no data.
+    ///
+    /// ```swift
+    /// chartState.scroll(to: earningsDate)               // centered
+    /// chartState.scroll(to: earningsDate, alignment: .leading, animated: true)
+    /// ```
+    ///
+    /// - Returns: `true` if it scrolled.
+    @discardableResult
+    public func scroll(to date: Date, alignment: ViewportAlignment = .center, animated: Bool = false) -> Bool {
+        guard plotWidth > 0, let index = ViewportNavigation.nearestIndex(to: date, in: candles) else { return false }
+        var target = viewport
+        target.rightEdge = ViewportNavigation.rightEdge(
+            forCandle: index, alignment: alignment, width: plotWidth, spacing: viewport.spacing
+        )
+        if animated {
+            startSpringAnimation(to: clampedToData(target))
+        } else {
+            viewport = target
+            commitViewport()
+        }
+        return true
+    }
+
+    /// The times of the first and last candles at least partly on screen, or `nil` with no data.
+    /// Reading it from a SwiftUI view makes that view update as the chart scrolls.
+    public var visibleDateRange: ClosedRange<Date>? {
+        _ = revision
+        return ViewportNavigation.visibleTimes(candles: candles, viewport: viewport, width: plotWidth)
+    }
+
+    /// How many candles currently fit across the plot (rounded). `0` before the first layout.
+    public var visibleCandleCount: Int {
+        _ = revision
+        guard plotWidth > 0 else { return 0 }
+        return Int(viewport.visibleCandleCount(width: plotWidth).rounded())
+    }
+
+    /// Zooms so about `count` candles fit across the plot, keeping the newest visible candle where
+    /// it is. The result is clamped to the chart's zoom limits.
+    public func setVisibleCandleCount(_ count: Int) {
+        guard plotWidth > 0, count > 0 else { return }
+        viewport.spacing = ViewportNavigation.spacing(forVisibleCount: count, width: plotWidth, limits: zoomLimits)
+        commitViewport()
+    }
+
     /// This chart's current scroll position and zoom level, suitable for a `ChartLayout` (see
     /// `ChartLayout.viewport`). `viewport` itself stays internal — `CandleChartState` is otherwise
     /// the only thing that reads or writes it — so this is the one sanctioned way out.

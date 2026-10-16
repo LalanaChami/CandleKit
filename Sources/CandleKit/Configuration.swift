@@ -43,6 +43,9 @@ public struct CandleChartStyle {
     /// (so it blends toward whatever's behind it) rather than laying a gray overlay across the
     /// background, grid, volume bars, or indicator lines, none of which dim.
     public var crosshairDimOpacity: Double
+    /// How the series is drawn: candles (the default), OHLC bars, a line, an area, or Heikin-Ashi.
+    /// Not part of a saved `ChartLayout`; set it again from your own settings. See `ChartSeriesType`.
+    public var seriesType: ChartSeriesType
 
     public init(
         upColor: Color = .green,
@@ -55,7 +58,8 @@ public struct CandleChartStyle {
         crosshairColor: Color = Color.primary.opacity(0.55),
         indicatorPalette: [Color] = [.orange, .purple, .teal, .pink, .indigo, .brown],
         priceAxisMaterial: Material? = nil,
-        crosshairDimOpacity: Double = 0.28
+        crosshairDimOpacity: Double = 0.28,
+        seriesType: ChartSeriesType = .candles
     ) {
         self.upColor = upColor
         self.downColor = downColor
@@ -68,6 +72,7 @@ public struct CandleChartStyle {
         self.indicatorPalette = indicatorPalette
         self.priceAxisMaterial = priceAxisMaterial
         self.crosshairDimOpacity = min(max(crosshairDimOpacity, 0), 1)
+        self.seriesType = seriesType
     }
 
     /// Green for rising, red for falling.
