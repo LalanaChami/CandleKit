@@ -94,6 +94,13 @@ struct MarketView: View {
 
     var body: some View {
         let configuration = FeedConfiguration(source: source, product: product, timeframe: timeframe, attempt: attempt)
+        // Built in three steps: one expression carrying every modifier below was too big for the type-checker.
+        let base = screen(configuration)
+        let live = lifecycle(base, configuration)
+        return presentations(live)
+    }
+
+    private func screen(_ configuration: FeedConfiguration) -> some View {
 
         // No NavigationStack here: this screen never pushes anywhere, and on iOS 26
         // NavigationStack's own chrome was drawing a soft glass/scrim behind the safe area at
@@ -192,7 +199,7 @@ struct MarketView: View {
                     tools: tools,
                     comparisonSeries: comparison.series,
                     comparisonNormalization: comparison.normalization,
-                    sessions: sessionsAvailable && showsSessions ? TradingSession.usEquities : []
+                    sessions: shadedSessions
                 )
                 .frame(maxHeight: .infinity)
 
@@ -219,6 +226,10 @@ struct MarketView: View {
             .animation(.spring(response: 0.35, dampingFraction: 0.8), value: toast)
             .animation(.snappy, value: replay.isActive)
         }
+    }
+
+    private func lifecycle(_ content: some View, _ configuration: FeedConfiguration) -> some View {
+        content
         .task(id: configuration) {
             await feed.run(configuration)
         }
@@ -243,6 +254,10 @@ struct MarketView: View {
             timeframe = request.timeframe
             router.consume(request)
         }
+    }
+
+    private func presentations(_ content: some View) -> some View {
+        content
         .sheet(item: $sharedImage) { shared in
             ActivityView(items: [shared.image])
                 .presentationDetents([.medium, .large])
@@ -279,10 +294,10 @@ struct MarketView: View {
                 showsMACD: $showsMACD,
                 chartState: chartState,
                 comparison: comparison,
-                showsSessions: $showsSessions,
-                sessionsAvailable: sessionsAvailable,
                 tools: tools,
                 candlesProvider: { feed.candles },
+                showsSessions: $showsSessions,
+                sessionsAvailable: sessionsAvailable,
                 replayActive: replay.isActive,
                 canReplay: feed.status == .streaming,
                 onStartReplay: { startReplay() },
@@ -310,6 +325,11 @@ struct MarketView: View {
     /// it on longer intervals, so the option is disabled there instead of silently doing nothing.
     private var sessionsAvailable: Bool {
         product.isEquity && timeframe.rawValue <= Timeframe.oneHour.rawValue
+    }
+
+    /// Hoisted out of `body` so the type-checker doesn't have to solve this ternary inside the big view expression.
+    private var shadedSessions: [TradingSession] {
+        sessionsAvailable && showsSessions ? TradingSession.usEquities : []
     }
 
     /// Starts a replay from the middle of the loaded series, paused.
