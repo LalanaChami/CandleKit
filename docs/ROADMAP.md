@@ -778,6 +778,38 @@ Phase 8, none of these need a platform a WebView can't reach — they're just mi
 - [ ] **9.14 Notes and journal pins.** Attach a text note and optionally a snapshot (8.5) to a
       candle, for trade journaling; persisted by the app, like events.
 
+### Phase 12: Market data tools (order book, depth, tape, order lines)
+
+What a trader reads besides price: who is waiting to trade and who just traded. The step-by-step
+plan, with file names, API, test values and stop conditions, is `docs/plans/market-tools.md`;
+follow it exactly, one step per commit. CandleKit only displays data the app supplies. It never
+connects to an exchange or places an order.
+
+- [ ] **12.1 Order book model (Core).** `OrderBook`, levels, updates, best bid/ask, spread.
+- [ ] **12.2 Order book maths (Core).** Price grouping, cumulative depth, imbalance, ladder rows, depth curve.
+- [ ] **12.3 Trades (Core).** `MarketTrade`, `TradeTape`, `TradeFlow`, tick rule.
+- [ ] **12.4 Trades per candle and cumulative delta (Core).**
+- [ ] **12.5 Sample order book and trades (Core).**
+- [ ] **12.6 Publish throttle and `OrderBookStore`.**
+- [ ] **12.7 `OrderBookView`** (ladder) and `MarketDataStyle`.
+- [ ] **12.8 `DepthChartView`.**
+- [ ] **12.9 `TimeAndSalesView`.**
+- [ ] **12.10 Bid and ask lines on the chart** (`.quoteLines`).
+- [ ] **12.11 Depth overlay on the chart** (`.depthOverlay`); delivers 9.10.
+- [ ] **12.12 Order and position lines** (`.orderLines`, draggable); delivers 9.7.
+- [ ] **12.13 Demo Order flow tab** (simulated, and live Coinbase `level2_batch` + `matches`).
+- [ ] **12.14 Documentation.**
+
+Not planned yet, each needs a design note first (reasons in the plan's section 7):
+
+- [ ] **12.15 Volume delta and cumulative volume delta pane.** Needs an indicator input beyond candles.
+- [ ] **12.16 Footprint (cluster) candles.**
+- [ ] **12.17 Liquidity heatmap** (order-book history behind the candles).
+- [ ] **12.18 Large-trade bubbles on the chart.**
+- [ ] **12.19 Event marker and volume profile colors from the style.** Both layers use fixed colors
+      today (`EventMarkersLayer.color(for:)`, `VolumeProfileLayer`), against the "semantic colors"
+      rule in `.claude/rules/swiftui-layer.md`. An API gap found in review.
+
 ### Phase 10: Developer experience and ecosystem
 
 The competitive lever proprietary SDKs consistently under-invest in. A developer chooses a library
@@ -826,6 +858,10 @@ partly on "how fast can I get this working and keep it working," not only on fea
 | KI-13 | `CandleChartState` retains its own full copy of the candle array between renders, purely for `count` bookkeeping and crosshair random access. An app that mutates the last candle in place for a hot live-tick path (the pattern this README itself recommends) will force at least one full-array copy-on-write per tick, because CandleKit's retained reference and the app's own array reference are no longer uniquely held at the moment of mutation. Negligible for series in the hundreds to low thousands of candles (the demo's scale); worth revisiting for very large series (tens of thousands of candles) updated many times per second — the CPU cost of the copy itself is small, but the repeated allocation of a large buffer many times per second could contribute to hitches on constrained devices. | Investigate as part of 5.8, if the 1.5 performance baseline shows it matters. Likely fix: stop invoking the crosshair-change callback from inside `CandleChartState` (which needs the full array) and instead fire it reactively from `CrosshairLayer`, which already receives `frame.candles` per render — then `CandleChartState` itself would only need to retain a candle *count*. |
 | KI-14 | On first load, `MarketView`'s outer 0.15s opacity crossfade (skeleton → chart) and `CandlestickChart`'s own ~0.5s per-candle reveal sweep run concurrently but aren't coordinated: the container is fully opaque well before the candles finish sweeping in. Not wrong, just slightly uncoordinated. | Opportunistic — either have the outer transition wait for `appearPhase` to settle, or drop one of the two animations. |
 | KI-15 | `DisplayLinkProxy` (added in the Unreleased changes — see CHANGELOG) and its call sites haven't been checked against Swift 6's strict concurrency checker. The pattern mirrors `PerformanceView.DisplayLinkTarget` in the demo, but the generic, cross-type closures in `CandleChartState`/`ChartGestureCoordinator` may need explicit isolation annotations that can't be confirmed without compiling. | 0.2 (fold into the general "make the UI layer compile" pass) |
+| KI-16 | `ChartEventCluster.id` is the candle index, which shifts when history is prepended, so a `.sheet(item:)` keyed on a selected cluster can re-identify. | Use the first event's id; unreleased API, so it can still change |
+| KI-17 | In cursor mode a drag that starts within 22pt of any drawing moves that drawing instead of panning the chart (`DrawingController.shouldClaimPrimaryGesture`). A long horizontal line makes much of the chart un-pannable by accident. | Decide: claim only when the drawing is already selected (tap to select, then drag) |
+| KI-18 | Indicators and the header read Heikin-Ashi values when that series type is on (they receive the displayed candles). Matches most platforms, but `priceCrossings` callers should pass real candles. | Document in the series-type guide |
+| KI-19 | `IndicatorCache` recomputes every indicator over the whole series on each live tick (`candles != source`). Fine at a few thousand candles; needs a trace before changing. | Incremental update of the last value, after a trace |
 
 ## Open questions for the maintainer
 
