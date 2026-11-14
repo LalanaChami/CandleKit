@@ -19,6 +19,16 @@ below describe what has landed on `main` since the initial commit.
 
 Written without a compiler: none of this has been built, and the new Core tests have not been run. Their expected values come from Python reference scripts.
 
+### Fixed: code review findings
+
+- A saved `ChartLayout` holding a drawing kind this version doesn't know (saved by a newer CandleKit) now loads without that drawing, instead of failing to decode entirely. Regression test in `ChartLayoutTests`.
+- The comparison legend, event markers, volume profile and drawings now refresh when the data or the comparison series changes without a scroll. They read the frame built by the candle layer and were only re-evaluated on the next viewport change.
+- An animated `scroll(to:)` that ends near the oldest candle now asks for older history, as the non-animated form already did.
+- The volume profile cache also keys on the first visible candle's time and the whole last candle, so a symbol or timeframe switch to a series of the same length can't reuse the old profile.
+- `CLAUDE.md` and the README status line no longer say the package is unbuilt and unreleased.
+
+The three SwiftUI-layer fixes are written without a compiler and not yet built or checked in the Simulator.
+
 ## 0.2.0 - 2026-10-11
 
 ### Added — Documentation media

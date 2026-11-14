@@ -20,7 +20,7 @@ struct PriceView: View {
 }
 ```
 
-> **Status: 0.1, pre-release.** The core engine has a full unit test suite. The SwiftUI layer has not yet been profiled on device or covered by snapshot tests. Feedback and bug reports are very welcome.
+> **Status: 0.2, pre-1.0.** The core engine has a full unit test suite and CI builds every target. The SwiftUI layer has been exercised in the iOS Simulator but not yet profiled on a device or covered by snapshot tests, and the API can still change before 1.0. Feedback and bug reports are very welcome.
 
 ## Requirements
 
@@ -32,7 +32,7 @@ In Xcode, choose **File › Add Package Dependencies** and enter the repository 
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/LalanaChami/CandleKit.git", from: "0.1.0")
+    .package(url: "https://github.com/LalanaChami/CandleKit.git", from: "0.2.0")
 ]
 ```
 

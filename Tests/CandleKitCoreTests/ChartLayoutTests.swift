@@ -105,6 +105,25 @@ struct ChartLayoutTests {
         #expect(decoded.timeframeIdentifier == nil)
     }
 
+    /// A drawing kind this version doesn't know (saved by a newer CandleKit) is dropped; the rest of
+    /// the layout, including the drawings it does understand, still loads.
+    @Test func unknownDrawingKindIsSkipped() throws {
+        let original = sampleLayout()
+        var json = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(original)
+        ) as! [String: Any]
+        var drawings = try #require(json["drawings"] as? [[String: Any]])
+        var unknown = try #require(drawings.first)
+        unknown["kind"] = "aKindFromANewerVersion"
+        drawings.append(unknown)
+        json["drawings"] = drawings
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        let decoded = try JSONDecoder().decode(ChartLayout.self, from: data)
+        #expect(decoded.drawings == original.drawings)
+        #expect(decoded.indicators == original.indicators)
+    }
+
     @Test func initialSchemaVersionIsCurrent() {
         #expect(sampleLayout().schemaVersion == ChartLayout.currentSchemaVersion)
     }

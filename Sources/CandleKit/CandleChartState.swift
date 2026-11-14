@@ -459,6 +459,9 @@ public final class CandleChartState {
             viewport = clampedToData(target)
             revision &+= 1
             stopSpringAnimation()
+            // An animated `scroll(to:)` can land near the oldest candle, so ask for history here the
+            // way every non-animated viewport change does.
+            requestOlderCandlesIfNeeded()
         }
     }
 
@@ -571,6 +574,14 @@ public final class CandleChartState {
         plotWidth = Double(layout.plot.width)
 
         let change = SeriesChange.between(summary, newCandles)
+        // Set when this frame differs from the last one for a reason that didn't bump `revision`
+        // (new candles moved the viewport, or the comparison series changed). See the end of this
+        // method.
+        var readersNeedRefresh: Bool
+        switch change {
+        case .extended, .replaced, .initial: readersNeedRefresh = true
+        case .unchanged: readersNeedRefresh = false
+        }
         viewport.apply(change, previousCount: summary?.count ?? 0, newCount: newCandles.count, rightPadding: rightPadding)
         summary = SeriesSummary(newCandles)
         candles = newCandles
@@ -661,6 +672,7 @@ public final class CandleChartState {
                 }
                 cachedComparisonKeys = keys
                 needsScaling = true
+                readersNeedRefresh = true
             }
             if cachedScaling?.normalization != comparisonNormalization {
                 needsScaling = true
@@ -856,9 +868,15 @@ public final class CandleChartState {
         // showing the pre-settle values until the next unrelated redraw. A deferred `revision`
         // bump makes them re-read; the frame it triggers is identical, so nothing loops. Deferred
         // because `revision` is observed and must not be written during a view update.
+        //
+        // The same applies when the data or the comparison series changed: the layers that read
+        // `currentFrame` and `revision` (comparison legend, event markers, volume profile, drawings)
+        // are only re-evaluated by SwiftUI when their own inputs change, and none of them takes
+        // the candle array. The frame built after the bump has `.unchanged` data, so it doesn't
+        // bump again.
         let justSettled = frameWasBuiltWhileScrolling && !isScrolling
         frameWasBuiltWhileScrolling = isScrolling
-        if justSettled {
+        if justSettled || readersNeedRefresh {
             Task { @MainActor [weak self] in self?.revision &+= 1 }
         }
         return frame

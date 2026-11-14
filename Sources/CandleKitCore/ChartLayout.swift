@@ -93,9 +93,21 @@ public struct ChartLayout: Codable, Sendable, Equatable {
         // these arrays should still load in an older one, the same forward-compatibility
         // `IndicatorParameter.applying(_:)` already gives unknown parameter keys.
         indicators = try container.decodeIfPresent([PersistedIndicator].self, forKey: .indicators) ?? []
-        drawings = try container.decodeIfPresent([Drawing].self, forKey: .drawings) ?? []
+        // Drawings decode one by one, and one that can't be read is skipped instead of failing the
+        // whole layout: a newer CandleKit can add a `DrawingKind` without bumping the schema
+        // version, and an older app should still load everything else the layout holds.
+        drawings = (try container.decodeIfPresent([LossyDrawing].self, forKey: .drawings) ?? []).compactMap(\.drawing)
         viewport = try container.decode(Viewport.self, forKey: .viewport)
         timeframeIdentifier = try container.decodeIfPresent(String.self, forKey: .timeframeIdentifier)
+    }
+
+    /// One element of the `drawings` array: the drawing, or `nil` when it couldn't be decoded.
+    private struct LossyDrawing: Decodable {
+        let drawing: Drawing?
+
+        init(from decoder: any Decoder) throws {
+            drawing = try? Drawing(from: decoder)
+        }
     }
 
     public func encode(to encoder: any Encoder) throws {

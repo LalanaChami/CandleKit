@@ -6,8 +6,8 @@ Open-source Swift package for interactive candlestick charts on iOS: TradingView
 
 ## Current state — read first
 
-- **The code has never been compiled.** v0.1 was written without a Swift toolchain. Expect compile errors, especially in `Sources/CandleKit/` (Swift 6 concurrency, UIKit bridging, Accessibility APIs). Getting it building is roadmap Phase 0. A later pass (see `CHANGELOG.md`, "Unreleased") fixed several leak/smoothness bugs found by *reading* the code, which is still true of that pass too — it needs the same Phase 0 build-and-device verification before anyone should trust it.
-- No CI, no release tag. The README's `from: "0.1.0"` doesn't resolve yet.
+- **The package builds and is released** (latest tag `v0.2.0`; CI in `.github/workflows/ci.yml` runs `swift test` on Linux and macOS, the iOS build, the Demo build and a watchOS build). Much of it was still written without a compiler and only later built, so treat anything marked `[~]` in the roadmap as built but not fully checked on a device.
+- Work after `v0.2.0` sits under "Unreleased" in `CHANGELOG.md`. Step-by-step plans for larger pieces of work live in `docs/plans/`; when a task comes from one, follow that plan's steps and stop conditions exactly.
 - **Never change anything for performance without a trace.** `docs/PERFORMANCE.md` has the instrumentation, the capture recipe and a trace log; record a before/after entry in the same change. Three rounds of code-reading-based perf work shipped before this rule existed and mis-ranked the costs every time.
 - All planned work, known issues and open questions are in `docs/ROADMAP.md`. Read the relevant section before starting a task, and update its status in the same change that completes it. Check `CHANGELOG.md` for what's already changed and why before re-deriving the same reasoning.
 
@@ -59,7 +59,9 @@ Don't reverse these without raising it with the maintainer first.
 - If a Core test fails, suspect the implementation before the expected values. The v0.1 expectations were checked numerically against an independent port of the algorithms. Change an expectation only with a written reason.
 - `CADisplayLink` retains its target. Momentum must be stopped when the view is dismantled (`ChartGestureView.dismantleUIView`).
 - Hidden directories (`.github/`, `.claude/`) have been lost when files were copied into this repo before. After adding one, check `git status`.
-- `Demo/project.yml` must point at the local package (`path: ..`) so the demo builds against the working tree. Pointing it at the GitHub URL builds the last pushed commit instead. It still points at the URL until task 0.3 is done.
+- `Demo/project.yml` must point at the local package (`path: ..`) so the demo builds against the working tree. Pointing it at the GitHub URL builds the last pushed commit instead.
+- A view `body` that grows past a few dozen modifiers stops type-checking ("unable to type-check this expression in reasonable time"). Split it into smaller computed properties or functions; see `MarketView` in the Demo.
+- Swift's memberwise initializer takes arguments in property declaration order. When adding a stored property to a view, add the argument at the matching position in every call.
 
 ## Definition of done
 

@@ -34,8 +34,10 @@ final class VolumeProfileCache {
     private struct Key: Equatable {
         var visible: Range<Int>
         var count: Int
-        var lastClose: Double
-        var lastVolume: Double
+        // The first visible time tells two series of the same length apart (a symbol or timeframe
+        // switch); the whole last candle covers a live tick that moves its high or low.
+        var firstVisibleTime: Date?
+        var last: Candle
         var bucketCount: Int
         var share: Double
     }
@@ -43,8 +45,9 @@ final class VolumeProfileCache {
     func profile(for frame: ChartFrame, style: VolumeProfileStyle) -> VolumeProfile? {
         guard let last = frame.candles.last else { return nil }
         let newKey = Key(
-            visible: frame.visible, count: frame.candles.count, lastClose: last.close,
-            lastVolume: last.volume, bucketCount: style.bucketCount, share: style.valueAreaShare
+            visible: frame.visible, count: frame.candles.count,
+            firstVisibleTime: frame.visible.isEmpty ? nil : frame.candles[frame.visible.lowerBound].time,
+            last: last, bucketCount: style.bucketCount, share: style.valueAreaShare
         )
         if newKey == key { return cached }
         cached = VolumeProfile.compute(
