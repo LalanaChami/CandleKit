@@ -332,6 +332,44 @@ Select the drawing and drag a handle to move one price; drag anywhere else on it
 
 Also new in the drawing tools: `.parallelChannel` and `.fibonacciExtension`, both three-point tools that start with a sensible third point you can drag.
 
+## Order book, depth and tape
+
+Three views show who is waiting to trade and who just traded. They take plain values, need no chart, and can be placed anywhere. CandleKit displays the data you give it. It does not connect to an exchange or place orders.
+
+```swift
+@State private var store = OrderBookStore()          // republishes a fast feed about five times a second
+@State private var tape = TradeTape(capacity: 200)
+
+// From your feed:
+store.reset(bids: snapshotBids, asks: snapshotAsks)
+store.apply([OrderBookUpdate(side: .bid, price: 100.25, size: 0.75)])   // size 0 removes the level
+tape.append(MarketTrade(id: "t1", time: .now, price: 100.5, size: 0.2, side: .buy))
+
+OrderBookView(store.book)                            // the ladder: asks, spread, bids
+    .rowsPerSide(12)
+    .priceGrouping(0.5)
+    .onSelectPrice { price in draftOrderPrice = price }
+
+DepthChartView(store.book)                           // cumulative size either side of the mid price
+    .depthWindow(0.02)
+
+TimeAndSalesView(tape.trades)                        // newest trade first, colored by aggressor
+    .largeTradeSize(5)
+```
+
+`OrderBook` keeps bids sorted highest first and asks lowest first, so index 0 is the best price on each side, and gives `bestBid`, `bestAsk`, `midPrice`, `spread` and `spreadBasisPoints`. `OrderBookMath` adds price grouping, cumulative depth and imbalance; `TradeMath` and `TradeAggregation` total buy and sell volume, overall or per candle. A trade's `side` is the aggressor. Some feeds report the maker's side instead (Coinbase does), so flip it when you build the trade. `MarketSampleData` makes a deterministic book and tape for previews.
+
+## Market overlays on the chart
+
+```swift
+CandlestickChart(candles)
+    .quoteLines(bid: store.book.bestBid?.price, ask: store.book.bestAsk?.price)
+    .depthOverlay(store.book)
+    .orderLines(orders, tick: 0.01) { id, newPrice in broker.move(id, to: newPrice) }
+```
+
+`quoteLines` draws the spread against the candles. `depthOverlay` draws the book as bars along the left edge, lined up with the price axis. `orderLines` draws your orders and position as labelled lines; one marked `isDraggable` can be dragged by its tag, and the callback gives you the new price to act on. The chart never places or changes an order.
+
 ## Customization
 
 | Modifier | Purpose |

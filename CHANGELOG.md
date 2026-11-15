@@ -6,6 +6,22 @@ below describe what has landed on `main` since the initial commit.
 
 ## Unreleased
 
+### Added: market data tools (order book, depth chart, time and sales, order lines)
+
+Roadmap phase 12, built from `docs/plans/market-tools.md`. CandleKit displays the data the app supplies; it does not connect to an exchange or place orders.
+
+- `OrderBook`, `OrderBookLevel`, `OrderBookUpdate`: a sorted level 2 book with best bid/ask, mid price, spread and crossed-book detection (12.1).
+- `OrderBookMath` (price grouping, cumulative depth, imbalance, price buckets), `OrderBookLadder` and `DepthCurve` (12.2).
+- `MarketTrade`, `TradeTape`, `TradeFlow`, `TradeMath` including the tick rule (12.3); `TradeAggregation` for buy and sell volume per candle and cumulative delta (12.4).
+- `MarketSampleData`: deterministic order book and trades for previews and tests (12.5).
+- `PublishThrottle` and `OrderBookStore`, which republishes a fast book feed about five times a second (12.6).
+- `OrderBookView`, `DepthChartView`, `TimeAndSalesView` and `MarketDataStyle`: standalone views that need no chart (12.7 to 12.9).
+- Chart modifiers `.quoteLines(bid:ask:)`, `.depthOverlay(_:)`, `.orderLines(_:tick:onMove:)` and `.marketDataStyle(_:)` (12.10 to 12.12; delivers 9.10 and 9.7).
+- Demo: an Order flow tab with a simulated book and tape, and a live Coinbase BTC-USD option (12.13).
+- Guide: `website/docs/guides/market-data.md`.
+
+Written without a compiler: none of this has been built, and the new Core tests have not been run. Their expected values come from a Python reference script.
+
 ### Added: trader tools (series types, scrolling to a date, event markers, volume profile, risk tool)
 
 - `.seriesType(_:)`: OHLC bars, line, area and Heikin-Ashi (4.6). Heikin-Ashi is a Core transform, recomputed incrementally on live ticks.

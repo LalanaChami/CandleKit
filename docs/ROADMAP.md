@@ -758,7 +758,7 @@ Phase 8, none of these need a platform a WebView can't reach — they're just mi
       position size from a risk amount or account share, rounded down to a lot step. The chart
       shows no size yet (it doesn't know the account); apps call `PositionPlan.quantity`. Ignores
       fees and slippage. Informational only, not advice. Not yet compiled or run.
-- [ ] **9.7 Order and position overlays.** Draw the host app's open orders and average entry as
+- [~] **9.7 Order and position overlays.** (See phase 12.12.) Draw the host app's open orders and average entry as
       lines, and let the person drag one to modify it, reporting the new price through a callback.
       CandleKit never places or changes an order itself.
 - [ ] **9.8 Multi-timeframe sync.** Two or more linked charts (for example 1D and 15m) sharing a
@@ -766,7 +766,7 @@ Phase 8, none of these need a platform a WebView can't reach — they're just mi
       different intervals map to one time.
 - [ ] **9.9 Indicator alerts.** Extend `priceCrossings` to indicator values ("RSI crosses 70",
       "price crosses the EMA") using the indicator results the core already computes.
-- [ ] **9.10 Market depth.** A depth ladder or order-book heatmap beside the price axis, for apps
+- [~] **9.10 Market depth.** (See phase 12.11.) A depth ladder or order-book heatmap beside the price axis, for apps
       that have a depth feed. Needs a data model and a decision on how it scales with the price axis.
 - [ ] **9.11 Pattern and level detection.** Optional markers for swing highs and lows, pivot
       points and common candlestick patterns (engulfing, doji, hammer), computed in Core with
@@ -785,20 +785,32 @@ plan, with file names, API, test values and stop conditions, is `docs/plans/mark
 follow it exactly, one step per commit. CandleKit only displays data the app supplies. It never
 connects to an exchange or places an order.
 
-- [ ] **12.1 Order book model (Core).** `OrderBook`, levels, updates, best bid/ask, spread.
-- [ ] **12.2 Order book maths (Core).** Price grouping, cumulative depth, imbalance, ladder rows, depth curve.
-- [ ] **12.3 Trades (Core).** `MarketTrade`, `TradeTape`, `TradeFlow`, tick rule.
-- [ ] **12.4 Trades per candle and cumulative delta (Core).**
-- [ ] **12.5 Sample order book and trades (Core).**
-- [ ] **12.6 Publish throttle and `OrderBookStore`.**
-- [ ] **12.7 `OrderBookView`** (ladder) and `MarketDataStyle`.
-- [ ] **12.8 `DepthChartView`.**
-- [ ] **12.9 `TimeAndSalesView`.**
-- [ ] **12.10 Bid and ask lines on the chart** (`.quoteLines`).
-- [ ] **12.11 Depth overlay on the chart** (`.depthOverlay`); delivers 9.10.
-- [ ] **12.12 Order and position lines** (`.orderLines`, draggable); delivers 9.7.
-- [ ] **12.13 Demo Order flow tab** (simulated, and live Coinbase `level2_batch` + `matches`).
-- [ ] **12.14 Documentation.**
+- [~] **12.1 Order book model (Core).** `OrderBook`, levels, updates, best bid/ask, spread.
+- [~] **12.2 Order book maths (Core).** Price grouping, cumulative depth, imbalance, ladder rows, depth curve.
+- [~] **12.3 Trades (Core).** `MarketTrade`, `TradeTape`, `TradeFlow`, tick rule.
+- [~] **12.4 Trades per candle and cumulative delta (Core).**
+- [~] **12.5 Sample order book and trades (Core).**
+- [~] **12.6 Publish throttle and `OrderBookStore`.**
+- [~] **12.7 `OrderBookView`** (ladder) and `MarketDataStyle`.
+- [~] **12.8 `DepthChartView`.**
+- [~] **12.9 `TimeAndSalesView`.**
+- [~] **12.10 Bid and ask lines on the chart** (`.quoteLines`).
+- [~] **12.11 Depth overlay on the chart** (`.depthOverlay`); delivers 9.10.
+- [~] **12.12 Order and position lines** (`.orderLines`, draggable); delivers 9.7.
+- [~] **12.13 Demo Order flow tab** (simulated, and live Coinbase `level2_batch` + `matches`).
+- [~] **12.14 Documentation.**
+
+Status of 12.1 to 12.14: written, not yet built. Before ticking them: `swift test`, the iOS build and
+the Demo build must pass, and these need a look in the Simulator: ladder bars and row order, the
+depth chart's two steps meeting at the mid line, tape order and large-trade highlight, quote lines
+and depth bars tracking the price axis while panning and scaling, order tags dragging without
+blocking chart panning, the live Coinbase book filling (its opening snapshot is several megabytes),
+VoiceOver labels and large Dynamic Type.
+
+Differences from the plan: the bid/ask lines and depth overlay share one host view
+(`MarketOverlayLayers`) so the chart's ZStack gains one child; `MarketDataStyle` defaults to plain
+green and red (the chart's own defaults) instead of reading `CandleChartStyle.standard`; the
+throttle test allows a rounding error at exactly one interval.
 
 Not planned yet, each needs a design note first (reasons in the plan's section 7):
 

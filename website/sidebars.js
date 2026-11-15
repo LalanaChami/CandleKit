@@ -16,6 +16,7 @@ const sidebars = {
         'guides/replay',
         'guides/widgets-and-live-activities',
         'guides/trader-tools',
+        'guides/market-data',
       ],
     },
     {
