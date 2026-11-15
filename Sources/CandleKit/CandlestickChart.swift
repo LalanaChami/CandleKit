@@ -44,6 +44,14 @@ public struct CandlestickChart: View {
     private var volumeProfileStyle: VolumeProfileStyle?
     @State private var volumeProfileCache = VolumeProfileCache()
     private var eventSelectionHandler: ((ChartEventCluster) -> Void)?
+    private var quoteBid: Double?
+    private var quoteAsk: Double?
+    private var depthBook: OrderBook?
+    private var depthOverlayWidthShare = 0.25
+    private var marketStyle = MarketDataStyle.standard
+    private var orderLines: [ChartOrderLine] = []
+    private var orderLineTick: Double?
+    private var orderLineMoveHandler: ((String, Double) -> Void)?
 
     /// - Parameters:
     ///   - candles: The series to draw, oldest first.
@@ -137,6 +145,12 @@ public struct CandlestickChart: View {
                     if let volumeProfileStyle {
                         VolumeProfileLayer(state: state, style: volumeProfileStyle, chartStyle: style, cache: volumeProfileCache)
                     }
+                    if depthBook != nil || quoteBid != nil || quoteAsk != nil {
+                        MarketOverlayLayers(
+                            state: state, bid: quoteBid, ask: quoteAsk, depthBook: depthBook,
+                            depthWidthShare: depthOverlayWidthShare, style: marketStyle
+                        )
+                    }
                     PriceAxisGlassPanel(state: state, style: style)
                     if !comparisonSeries.isEmpty && !candles.isEmpty {
                         ComparisonLegend(state: state, style: style)
@@ -154,6 +168,13 @@ public struct CandlestickChart: View {
                     .position(x: content.midX, y: content.midY)
                     if !chartEvents.isEmpty {
                         EventMarkersLayer(state: state, events: chartEvents, style: style, onSelect: eventSelectionHandler)
+                    }
+                    // After the gesture view, so a draggable order tag gets its touch first.
+                    if !orderLines.isEmpty {
+                        OrderLinesLayer(
+                            state: state, lines: orderLines, style: marketStyle, tick: orderLineTick,
+                            onMove: orderLineMoveHandler
+                        )
                     }
                     // Last, so it wins hit-testing in its own narrow strip regardless of what's
                     // beneath it. `ChartGestureView.content` is sized from `contentRect`, which
@@ -600,6 +621,64 @@ extension CandlestickChart {
         var copy = self
         copy.chartEvents = events
         copy.eventSelectionHandler = onSelect
+        return copy
+    }
+
+    /// Draws dashed lines at the best bid and best ask, so the spread is visible against the
+    /// candles. Pass `nil` for either to hide it. Lines outside the visible price range aren't drawn.
+    ///
+    /// ```swift
+    /// CandlestickChart(candles)
+    ///     .quoteLines(bid: book.bestBid?.price, ask: book.bestAsk?.price)
+    /// ```
+    public func quoteLines(bid: Double?, ask: Double?) -> CandlestickChart {
+        var copy = self
+        copy.quoteBid = bid
+        copy.quoteAsk = ask
+        return copy
+    }
+
+    /// Draws the order book as horizontal bars along the left edge of the plot, lined up with the
+    /// price axis, so resting size ("walls") can be read against the candles. Only levels inside
+    /// the visible price range are drawn. Pass `nil` to hide it.
+    ///
+    /// Each redraw walks every level of `book` once, so pass a trimmed book (`OrderBookStore.book`
+    /// already is, or use `OrderBook.trimmed(depth:)`).
+    ///
+    /// - Parameter maximumWidthShare: the longest bar as a share of the plot width (0.05...0.6).
+    public func depthOverlay(_ book: OrderBook?, maximumWidthShare: Double = 0.25) -> CandlestickChart {
+        var copy = self
+        copy.depthBook = book
+        copy.depthOverlayWidthShare = min(max(maximumWidthShare, 0.05), 0.6)
+        return copy
+    }
+
+    /// Draws the app's orders and position as labelled horizontal lines. A line whose
+    /// `isDraggable` is `true` can be dragged by its tag; when the drag ends, `onMove` receives the
+    /// line's id and the new price, and the app decides what to do with it. The chart never places
+    /// or changes an order, and the line returns to `price` until the app updates the array.
+    ///
+    /// ```swift
+    /// CandlestickChart(candles)
+    ///     .orderLines(orders, tick: 0.01) { id, newPrice in broker.move(id, to: newPrice) }
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - tick: rounds a dragged price to this increment (the instrument's tick size).
+    public func orderLines(
+        _ lines: [ChartOrderLine], tick: Double? = nil, onMove: ((String, Double) -> Void)? = nil
+    ) -> CandlestickChart {
+        var copy = self
+        copy.orderLines = lines
+        copy.orderLineTick = tick
+        copy.orderLineMoveHandler = onMove
+        return copy
+    }
+
+    /// Colors for the market-data overlays (`quoteLines`, `depthOverlay`, `orderLines`).
+    public func marketDataStyle(_ style: MarketDataStyle) -> CandlestickChart {
+        var copy = self
+        copy.marketStyle = style
         return copy
     }
 
