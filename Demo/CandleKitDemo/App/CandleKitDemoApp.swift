@@ -26,6 +26,9 @@ struct RootView: View {
             PerformanceView()
                 .tabItem { Label("Performance", systemImage: "speedometer") }
                 .tag(3)
+            OrderFlowView()
+                .tabItem { Label("Order flow", systemImage: "list.bullet.rectangle") }
+                .tag(4)
         }
     }
 }
