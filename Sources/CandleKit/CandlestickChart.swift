@@ -31,6 +31,7 @@ public struct CandlestickChart: View {
     private var replayController: ReplayController?
     private var comparisonNormalization = ComparisonNormalization.percentChange
     private var fractionDigits: Int?
+    private var tagContent: ((Candle) -> String)?
     private var crosshairHandler: ((Candle?) -> Void)?
     private var oldestCandleHandler: (() -> Void)?
     private var drawingsBinding: Binding<[Drawing]>?
@@ -155,7 +156,7 @@ public struct CandlestickChart: View {
                     if !comparisonSeries.isEmpty && !candles.isEmpty {
                         ComparisonLegend(state: state, style: style)
                     }
-                    CrosshairLayer(state: state, style: style)
+                    CrosshairLayer(state: state, style: style, tagContent: tagContent)
                     LastPriceBadge(state: state, candles: candles, style: style)
                     if drawingsBinding != nil {
                         DrawingsLayer(state: state, controller: drawingController, drawings: drawingsValue)
@@ -700,6 +701,21 @@ extension CandlestickChart {
     public func priceFractionDigits(_ digits: Int?) -> CandlestickChart {
         var copy = self
         copy.fractionDigits = digits
+        return copy
+    }
+
+    /// Replaces the bottom crosshair tag's text with your own formatting of the focused candle.
+    ///
+    /// ```swift
+    /// CandlestickChart(candles).crosshairTagContent { candle in
+    ///     "\(candle.low) - \(candle.high)"
+    /// }
+    /// ```
+    ///
+    /// Omit this modifier for the default detailed time.
+    public func crosshairTagContent(_ content: @escaping (Candle) -> String) -> CandlestickChart {
+        var copy = self
+        copy.tagContent = content
         return copy
     }
 

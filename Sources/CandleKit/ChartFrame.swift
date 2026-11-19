@@ -250,6 +250,7 @@ enum ChartFormat {
         }
         return date.formatted(.dateTime.year().month(.abbreviated).day())
     }
+
 }
 
 enum ChartText {
@@ -293,7 +294,7 @@ enum ChartText {
         let centerX = min(max(x, rect.minX + width / 2), rect.maxX - width / 2)
         let tag = CGRect(x: centerX - width / 2, y: rect.minY + 2, width: width, height: max(0, rect.height - 4))
         context.fill(Path(roundedRect: tag, cornerRadius: 4), with: .color(background))
-        context.draw(text, at: CGPoint(x: centerX, y: tag.midY), anchor: .center)
+        context.draw(text, at: CGPoint(x: centerX, y: rect.midY), anchor: .center)
     }
 }
 

@@ -11,6 +11,7 @@ import SwiftUI
 struct CrosshairLayer: View {
     let state: CandleChartState
     let style: CandleChartStyle
+    var tagContent: ((Candle) -> String)?
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
@@ -80,8 +81,11 @@ struct CrosshairLayer: View {
                         context: &context
                     )
                 }
+                let candle = frame.candles[index]
+                let tagText = tagContent?(candle)
+                    ?? ChartFormat.detailedTime(candle.time, interval: frame.interval)
                 ChartText.drawTimeTag(
-                    ChartFormat.detailedTime(frame.candles[index].time, interval: frame.interval),
+                    tagText,
                     x: x,
                     in: frame.layout.timeAxis,
                     background: tagBackground,
