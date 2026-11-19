@@ -31,7 +31,7 @@ public struct CandlestickChart: View {
     private var replayController: ReplayController?
     private var comparisonNormalization = ComparisonNormalization.percentChange
     private var fractionDigits: Int?
-    private var tagShowsRange = false
+    private var tagContent: ((Candle) -> String)?
     private var crosshairHandler: ((Candle?) -> Void)?
     private var oldestCandleHandler: (() -> Void)?
     private var drawingsBinding: Binding<[Drawing]>?
@@ -156,7 +156,7 @@ public struct CandlestickChart: View {
                     if !comparisonSeries.isEmpty && !candles.isEmpty {
                         ComparisonLegend(state: state, style: style)
                     }
-                    CrosshairLayer(state: state, style: style, tagShowsRange: tagShowsRange)
+                    CrosshairLayer(state: state, style: style, tagContent: tagContent)
                     LastPriceBadge(state: state, candles: candles, style: style)
                     if drawingsBinding != nil {
                         DrawingsLayer(state: state, controller: drawingController, drawings: drawingsValue)
@@ -704,11 +704,18 @@ extension CandlestickChart {
         return copy
     }
 
-    /// Appends the focused candle's low–high range to the bottom crosshair tag's default
-    /// detailed time, on one line: "132,43 - 138,83 · 20 oct, 14:30".
-    public func crosshairTagShowsRange(_ enabled: Bool = true) -> CandlestickChart {
+    /// Replaces the bottom crosshair tag's text with your own formatting of the focused candle.
+    ///
+    /// ```swift
+    /// CandlestickChart(candles).crosshairTagContent { candle in
+    ///     "\(candle.low) - \(candle.high)"
+    /// }
+    /// ```
+    ///
+    /// Omit this modifier for the default detailed time.
+    public func crosshairTagContent(_ content: @escaping (Candle) -> String) -> CandlestickChart {
         var copy = self
-        copy.tagShowsRange = enabled
+        copy.tagContent = content
         return copy
     }
 
