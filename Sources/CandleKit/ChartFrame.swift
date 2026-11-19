@@ -250,6 +250,20 @@ enum ChartFormat {
         }
         return date.formatted(.dateTime.year().month(.abbreviated).day())
     }
+
+    static func price(_ value: Double, digits: Int, locale: Locale) -> String {
+        CrosshairTagFormat.price(value, digits: digits, locale: locale)
+    }
+
+    static func detailedTime(_ date: Date, interval: TimeInterval, locale: Locale, timeZone: TimeZone) -> String {
+        CrosshairTagFormat.detailedTime(date, interval: interval, locale: locale, timeZone: timeZone)
+    }
+
+    /// The focused candle's low–high range plus its detailed time, on one line:
+    /// "132,43 - 138,83 · 20 oct, 14:30" (locale-dependent).
+    static func rangeTime(low: Double, high: Double, time: Date, interval: TimeInterval, digits: Int, locale: Locale, timeZone: TimeZone) -> String {
+        CrosshairTagFormat.rangeTime(low: low, high: high, time: time, interval: interval, digits: digits, locale: locale, timeZone: timeZone)
+    }
 }
 
 enum ChartText {
@@ -293,7 +307,7 @@ enum ChartText {
         let centerX = min(max(x, rect.minX + width / 2), rect.maxX - width / 2)
         let tag = CGRect(x: centerX - width / 2, y: rect.minY + 2, width: width, height: max(0, rect.height - 4))
         context.fill(Path(roundedRect: tag, cornerRadius: 4), with: .color(background))
-        context.draw(text, at: CGPoint(x: centerX, y: tag.midY), anchor: .center)
+        context.draw(text, at: CGPoint(x: centerX, y: rect.midY), anchor: .center)
     }
 }
 
